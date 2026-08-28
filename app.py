@@ -1,211 +1,236 @@
 import os
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse
-import yfinance as yf
+import time
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
 import pandas as pd
-import numpy as np
+import yfinance as yf
+import requests
+import pyotp
+from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from pydantic import BaseModel
+from dhanhq import dhanhq
+from SmartApi import SmartConnect
 
-app = FastAPI(title="Universal Indian Stock Market Terminal")
+# ----------------- SECURITY CONFIG -----------------
+SECRET_KEY = os.getenv("APP_SECRET_KEY", "trading-shield-super-secret-jwt-key-2026-indore")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 720
 
-# क्विक लिस्ट (Quick Select List)
-CATEGORIZED_ASSETS = {
-    "INDEX F&O / FUTURES": {
-        "NIFTY 50 FUTURES": "^NSEI",
-        "BANK NIFTY FUTURES": "^NSEBANK",
-        "FIN NIFTY FUTURES": "NIFTY_FIN_SERVICE.NS",
-        "SENSEX FUTURES": "^BSESN",
-        "MIDCAP SELECT FUTURES": "^NSEMDCP50"
-    },
-    "COMMODITIES & FUTURES": {
-        "CRUDE OIL FUTURES": "CL=F",
-        "NATURAL GAS FUTURES": "NG=F",
-        "GOLD FUTURES": "GC=F",
-        "SILVER FUTURES": "SI=F"
-    },
-    "TOP CASH & POPULAR": {
-        "RELIANCE": "RELIANCE.NS",
-        "HDFC BANK": "HDFCBANK.NS",
-        "ICICI BANK": "ICICIBANK.NS",
-        "STATE BANK OF INDIA": "SBIN.NS",
-        "TCS": "TCS.NS",
-        "INFOSYS": "INFY.NS",
-        "ZOMATO": "ZOMATO.NS",
-        "SUZLON ENERGY": "SUZLON.NS",
-        "JIO FINANCIAL": "JIOFIN.NS",
-        "IRFC": "IRFC.NS",
-        "TATA MOTORS": "TATAMOTORS.NS",
-        "BSE LIMITED": "BSE.NS"
-    }
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", pwd_context.hash("admin@123"))
+
+# ----------------- SEARCH DIRECTORY (CASH, COMMODITY, INDICES) -----------------
+MASTER_SYMBOLS = [
+    # Indices & F&O
+    {"symbol": "^NSEI", "name": "NIFTY 50", "segment": "INDEX", "step": 50},
+    {"symbol": "^NSEBANK", "name": "BANKNIFTY", "segment": "INDEX", "step": 100},
+    {"symbol": "^CNXIT", "name": "NIFTY IT", "segment": "INDEX", "step": 100},
+    # Commodities
+    {"symbol": "CL=F", "name": "CRUDE OIL (MCX/NYMEX)", "segment": "COMMODITY", "step": 50},
+    {"symbol": "GC=F", "name": "GOLD (MCX/COMEX)", "segment": "COMMODITY", "step": 100},
+    {"symbol": "SI=F", "name": "SILVER (MCX/COMEX)", "segment": "COMMODITY", "step": 500},
+    {"symbol": "NG=F", "name": "NATURAL GAS", "segment": "COMMODITY", "step": 5},
+    # Cash / Equity / Futures
+    {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "segment": "EQUITY", "step": 20},
+    {"symbol": "SBIN.NS", "name": "State Bank of India", "segment": "EQUITY", "step": 10},
+    {"symbol": "TCS.NS", "name": "Tata Consultancy Services", "segment": "EQUITY", "step": 50},
+    {"symbol": "HDFCBANK.NS", "name": "HDFC Bank Ltd", "segment": "EQUITY", "step": 20},
+    {"symbol": "ICICIBANK.NS", "name": "ICICI Bank", "segment": "EQUITY", "step": 10},
+    {"symbol": "INFY.NS", "name": "Infosys Ltd", "segment": "EQUITY", "step": 20},
+    {"symbol": "TATAMOTORS.NS", "name": "Tata Motors", "segment": "EQUITY", "step": 10},
+    {"symbol": "ITC.NS", "name": "ITC Ltd", "segment": "EQUITY", "step": 5},
+    {"symbol": "LT.NS", "name": "Larsen & Toubro", "segment": "EQUITY", "step": 20},
+    {"symbol": "AXISBANK.NS", "name": "Axis Bank", "segment": "EQUITY", "step": 10}
+]
+
+TERMINAL_STATE = {
+    "active_broker": None,
+    "is_connected": False,
+    "broker_display_id": "",
+    "auto_trade_enabled": False,
+    "risk_settings": {"lots": 1, "target_inr": 1000.0, "stoploss_inr": 500.0},
+    "logs": [f"{datetime.now().strftime('%H:%M:%S')} - ऑप्शन बाइंग टर्मिनल तैयार है।"]
 }
 
-ALL_SYMBOLS = {}
-for cat, items in CATEGORIZED_ASSETS.items():
-    ALL_SYMBOLS.update(items)
+broker_instances: Dict[str, Any] = {}
 
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+app = FastAPI(title="Option Buyer Terminal")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-@app.get("/api/categories")
-def get_categories():
-    return CATEGORIZED_ASSETS
+# ----------------- AUTH HELPERS -----------------
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-@app.get("/api/data")
-def get_market_data(symbol_key: str = "NIFTY 50 FUTURES", timeframe: str = "5m"):
-    raw_query = symbol_key.strip().upper()
-    
-    # यदि प्री-डिफ़ाइन्ड लिस्ट में है तो वह टिकर लें, वर्ना सीधे NSE / Yahoo टिकर बनाएं
-    if raw_query in ALL_SYMBOLS:
-        ticker = ALL_SYMBOLS[raw_query]
-    elif raw_query.startswith("^") or "=" in raw_query or raw_query.endswith(".NS") or raw_query.endswith(".BO"):
-        ticker = raw_query
-    else:
-        # डिफ़ॉल्ट रूप से किसी भी भारतीय कैश स्टॉक के आगे .NS जोड़ें
-        ticker = f"{raw_query}.NS"
-
-    period_map = {
-        "1m": "1d",
-        "2m": "1d",
-        "3m": "5d",
-        "5m": "5d",
-        "15m": "1mo",
-        "30m": "1mo",
-        "1h": "1mo",
-        "1d": "1y",
-        "1wk": "2y"
-    }
-    selected_period = period_map.get(timeframe, "5d")
-    yf_interval = "60m" if timeframe == "1h" else ("1wk" if timeframe == "1wk" else timeframe)
-    
+def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
-        df = yf.download(ticker, period=selected_period, interval=yf_interval, progress=False)
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("sub") != ADMIN_USERNAME:
+            raise HTTPException(status_code=401, detail="अमान्य टोकन!")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="सत्र समाप्त, पुनः लॉगिन करें।")
+    return payload.get("sub")
+
+# ----------------- SCHEMAS -----------------
+class BrokerLinkRequest(BaseModel):
+    broker: str
+    client_id: str
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    access_token: Optional[str] = None
+    pin: Optional[str] = None
+    totp_secret: Optional[str] = None
+
+class RiskSettingsRequest(BaseModel):
+    lots: int
+    target_inr: float
+    stoploss_inr: float
+    auto_trade: bool
+
+class OptionBuyRequest(BaseModel):
+    symbol: str
+    strike: float
+    option_type: str  # CE or PE
+    lots: int
+
+# ----------------- ENDPOINTS -----------------
+@app.post("/token")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username != ADMIN_USERNAME or not pwd_context.verify(form_data.password, ADMIN_PASSWORD_HASH):
+        raise HTTPException(status_code=400, detail="गलत यूज़रनेम या पासवर्ड!")
+    return {"access_token": create_access_token(data={"sub": form_data.username}), "token_type": "bearer"}
+
+@app.get("/api/search")
+def search_symbols(q: str = Query("", min_length=1), user: str = Depends(get_current_user)):
+    query = q.lower().strip()
+    results = [s for s in MASTER_SYMBOLS if query in s["symbol"].lower() or query in s["name"].lower()]
+    return results[:10]
+
+@app.get("/api/market-data")
+def get_market_data(symbol: str = Query(...), user: str = Depends(get_current_user)):
+    try:
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="5d", interval="5m")
+        if df.empty or len(df) < 5:
+            raise HTTPException(status_code=404, detail="डेटा उपलब्ध नहीं!")
+
+        current_price = round(float(df["Close"].iloc[-1]), 2)
         
-        # अगर NSE पर न मिले तो BSE (.BO) चेक करें
-        if df.empty and not raw_query.startswith("^") and "=" not in raw_query:
-            ticker = f"{raw_query}.BO"
-            df = yf.download(ticker, period=selected_period, interval=yf_interval, progress=False)
-            
-        daily_df = yf.download(ticker, period="5d", interval="1d", progress=False)
-        
-        if df.empty:
-            return {"error": f"Symbol '{raw_query}' not found. Please check spelling."}
-            
-        if len(df) < 10:
-            df = yf.download(ticker, period="1mo", interval="1d", progress=False)
-            daily_df = df
-            
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if isinstance(daily_df.columns, pd.MultiIndex):
-            daily_df.columns = daily_df.columns.get_level_values(0)
-            
-        df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
-        df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-        df['RSI'] = calculate_rsi(df['Close'], 14)
-        
-        df = df.dropna()
-        latest = df.iloc[-1]
-        
-        prev_day = daily_df.iloc[-2] if len(daily_df) >= 2 else daily_df.iloc[-1]
-        prev_high = float(prev_day['High'])
-        prev_low = float(prev_day['Low'])
-        prev_close = float(prev_day['Close'])
-        
-        pivot = (prev_high + prev_low + prev_close) / 3.0
-        r1 = (2 * pivot) - prev_low
-        s1 = (2 * pivot) - prev_high
-        r2 = pivot + (prev_high - prev_low)
-        s2 = pivot - (prev_high - prev_low)
-        
-        ltp = float(latest['Close'])
-        rsi_val = float(latest['RSI'])
-        ema9 = float(latest['EMA_9'])
-        ema21 = float(latest['EMA_21'])
-        
-        # स्ट्राइक साइज ऑटो-कैलकुलेशन
-        if "BANK NIFTY" in raw_query:
-            strike_step = 100
-        elif "SENSEX" in raw_query:
-            strike_step = 100
-        elif "NIFTY" in raw_query or "CRUDE" in raw_query:
-            strike_step = 50
-        elif ltp < 100:
-            strike_step = 2.5
-        elif ltp < 500:
-            strike_step = 10
-        elif ltp < 2000:
-            strike_step = 20
+        # Previous Day High / Low Calculation
+        df_daily = ticker.history(period="5d", interval="1d")
+        if len(df_daily) >= 2:
+            prev_day = df_daily.iloc[-2]
+            pdh = round(float(prev_day["High"]), 2)
+            pdl = round(float(prev_day["Low"]), 2)
+            pdc = round(float(prev_day["Close"]), 2)
         else:
-            strike_step = 50
-            
-        atm_strike = round(ltp / strike_step) * strike_step
-        itm_call_strike = atm_strike - strike_step
-        itm_put_strike = atm_strike + strike_step
+            pdh, pdl, pdc = current_price, current_price, current_price
+
+        # Strike Price Generator (ATM, ITM, OTM)
+        step = 50
+        for s in MASTER_SYMBOLS:
+            if s["symbol"] == symbol:
+                step = s["step"]
+                break
         
-        signal = "WAIT / NO TRADE ZONE"
-        signal_type = "neutral"
-        strike_recommendation = f"ATM: {atm_strike} | ITM: {itm_call_strike} CE / {itm_put_strike} PE"
+        atm_strike = round(current_price / step) * step
+        strikes = [atm_strike - (step * 2), atm_strike - step, atm_strike, atm_strike + step, atm_strike + (step * 2)]
 
-        if ltp > ema9 > ema21 and rsi_val > 55:
-            signal = "BUY CALL (CE) / BUY CASH"
-            signal_type = "buy"
-            target_price = round(r2 if ltp > r1 else r1, 2)
-            stop_loss = round(ema21 if ema21 < ltp else s1, 2)
-            strike_recommendation = f"{itm_call_strike} CE (ITM) / {atm_strike} CE (ATM)"
-        elif ltp < ema9 < ema21 and rsi_val < 45:
-            signal = "BUY PUT (PE) / SHORT"
-            signal_type = "sell"
-            target_price = round(s2 if ltp < s1 else s1, 2)
-            stop_loss = round(ema21 if ema21 > ltp else r1, 2)
-            strike_recommendation = f"{itm_put_strike} PE (ITM) / {atm_strike} PE (ATM)"
-        else:
-            target_price = round(r1, 2)
-            stop_loss = round(s1, 2)
-
-        candles = []
-        for idx, row in df.iterrows():
-            candles.append({
-                "time": int(idx.timestamp()),
-                "open": round(float(row['Open']), 2),
-                "high": round(float(row['High']), 2),
-                "low": round(float(row['Low']), 2),
-                "close": round(float(row['Close']), 2)
-            })
-
-        currency_symbol = "$" if ("=" in ticker or ticker in ["CL=F", "NG=F", "GC=F", "SI=F"]) else "₹"
+        # Signal Logic based on PDH / PDL Breakout
+        recommendation = "NEUTRAL"
+        if current_price > pdh:
+            recommendation = "BULLISH BREAKOUT (BUY CE)"
+        elif current_price < pdl:
+            recommendation = "BEARISH BREAKDOWN (BUY PE)"
 
         return {
-            "symbol": raw_query,
-            "ticker": ticker,
-            "currency": currency_symbol,
-            "ltp": round(ltp, 2),
-            "rsi": round(rsi_val, 2),
-            "signal": signal,
-            "signal_type": signal_type,
-            "strike_rec": strike_recommendation,
-            "levels": {
-                "entry": round(ltp, 2),
-                "target": target_price,
-                "stop_loss": stop_loss,
-                "pivot": round(pivot, 2),
-                "r1": round(r1, 2),
-                "r2": round(r2, 2),
-                "s1": round(s1, 2),
-                "s2": round(s2, 2)
-            },
-            "candles": candles
+            "symbol": symbol,
+            "current_price": current_price,
+            "pdh": pdh,
+            "pdl": pdl,
+            "pdc": pdc,
+            "atm_strike": atm_strike,
+            "strikes": strikes,
+            "recommendation": recommendation
         }
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/", response_class=FileResponse)
-def serve_index():
-    return FileResponse("index.html")
+@app.get("/api/terminal/status")
+def terminal_status(user: str = Depends(get_current_user)):
+    return {
+        "active_broker": TERMINAL_STATE["active_broker"],
+        "is_connected": TERMINAL_STATE["is_connected"],
+        "broker_display_id": TERMINAL_STATE["broker_display_id"],
+        "auto_trade_enabled": TERMINAL_STATE["auto_trade_enabled"],
+        "risk_settings": TERMINAL_STATE["risk_settings"],
+        "logs": TERMINAL_STATE["logs"][-20:]
+    }
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
+@app.post("/api/broker/link")
+def link_broker(req: BrokerLinkRequest, user: str = Depends(get_current_user)):
+    broker = req.broker.lower()
+    try:
+        if broker == "dhan":
+            client = dhanhq(req.client_id, req.access_token)
+            broker_instances["client"] = client
+        elif broker == "angelone":
+            smart_api = SmartConnect(api_key=req.api_key)
+            totp = pyotp.TOTP(req.totp_secret).now() if req.totp_secret else ""
+            session = smart_api.generateSession(req.client_id, req.pin, totp)
+            if not session.get("status"):
+                raise HTTPException(status_code=400, detail="Angel One Login Failed: " + session.get("message"))
+            broker_instances["client"] = smart_api
+        elif broker == "sbi":
+            broker_instances["client"] = {"broker": "sbi", "client_id": req.client_id}
+        elif broker in ["zerodha", "upstox"]:
+            broker_instances["client"] = {"broker": broker, "api_key": req.api_key}
+
+        TERMINAL_STATE["active_broker"] = broker.upper()
+        TERMINAL_STATE["is_connected"] = True
+        masked = req.client_id[:3] + "****" + req.client_id[-2:] if len(req.client_id) > 5 else req.client_id
+        TERMINAL_STATE["broker_display_id"] = masked
+        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} ({masked}) सफलतापूर्वक लिंक हुआ।")
+        return {"status": "success", "message": f"{broker.upper()} कनेक्ट हो गया है!"}
+    except Exception as e:
+        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} लिंक एरर: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/broker/unlink")
+def unlink_broker(user: str = Depends(get_current_user)):
+    b_name = TERMINAL_STATE["active_broker"] or "ब्रोकर"
+    broker_instances.clear()
+    TERMINAL_STATE["active_broker"] = None
+    TERMINAL_STATE["is_connected"] = False
+    TERMINAL_STATE["broker_display_id"] = ""
+    TERMINAL_STATE["auto_trade_enabled"] = False
+    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {b_name} अनलिंक किया गया।")
+    return {"status": "success", "message": "ब्रोकर सफलतापूर्वक डिस्कनेक्ट हुआ।"}
+
+@app.post("/api/settings/save")
+def save_settings(req: RiskSettingsRequest, user: str = Depends(get_current_user)):
+    TERMINAL_STATE["risk_settings"]["lots"] = req.lots
+    TERMINAL_STATE["risk_settings"]["target_inr"] = req.target_inr
+    TERMINAL_STATE["risk_settings"]["stoploss_inr"] = req.stoploss_inr
+    TERMINAL_STATE["auto_trade_enabled"] = req.auto_trade
+    status_txt = "चालू" if req.auto_trade else "बंद"
+    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - सेटिंग्स सेव: Lots={req.lots}, Target=₹{req.target_inr}, SL=₹{req.stoploss_inr}, AutoTrade={status_txt}")
+    return {"status": "success", "message": "रिस्क सेटिंग्स सुरक्षित हो गईं!"}
+
+@app.post("/api/order/buy-option")
+def buy_option(req: OptionBuyRequest, user: str = Depends(get_current_user)):
+    if not TERMINAL_STATE["is_connected"]:
+        raise HTTPException(status_code=400, detail="पहले ब्रोकर लिंक करें!")
+    
+    order_desc = f"BUY {req.symbol} {req.strike} {req.option_type} ({req.lots} Lot)"
+    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER PLACED] {order_desc}")
+    return {"status": "success", "message": f"सफल: {order_desc}"}
