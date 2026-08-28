@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pandas
+yfinance
+requests
+pyotp
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+dhanhq
+smartapi-python
