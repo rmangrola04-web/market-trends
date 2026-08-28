@@ -208,6 +208,7 @@
     // --- GLOBAL VARIABLES ---
     let authToken = localStorage.getItem("token");
     let currentActiveSymbol = "RELIANCE.NS";
+    let currentChartSymbol = ""; // चार्ट रिफ्रेश रोकने के लिए
     let isSignUpMode = false;
 
     // --- INITIALIZATION ---
@@ -372,6 +373,12 @@
     }
 
     function renderTradingViewChart(sym) {
+      // अगर वही सिंबल पहले से खुला है, तो चार्ट को रिफ्रेश मत करो
+      if (currentChartSymbol === sym) return;
+      
+      // नया सिंबल सेट करें
+      currentChartSymbol = sym;
+
       let tvSymbol = "BSE:" + sym.replace(".NS", "").replace(".BO", "");
       
       if (sym === "CL=F") tvSymbol = "TVC:USOIL";
