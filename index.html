@@ -298,34 +298,31 @@
         renderTradingViewChart(sym);
       }
     }
+      
+Rahul Mangrola <rmangrola04@gmail.com>
+10:03 AM (2 minutes ago)
+to me
 
-    function renderTradingViewChart(sym) {
-      let tvSymbol = "NSE:" + sym.replace(".NS", "");
-      if (sym === "CL=F") tvSymbol = "MCX:CRUDEOIL1!";
-      if (sym === "GC=F") tvSymbol = "MCX:GOLD1!";
-      if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
-      if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
+function renderTradingViewChart(sym) {
+  let tvSymbol = "BSE:" + sym.replace(".NS", "").replace(".BO", "");
+  
+  if (sym === "CL=F") tvSymbol = "TVC:USOIL";
+  else if (sym === "GC=F") tvSymbol = "TVC:GOLD";
+  else if (sym === "SI=F") tvSymbol = "TVC:SILVER";
+  else if (sym === "NG=F") tvSymbol = "TVC:NATURALGAS";
+  else if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
+  else if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
+  else if (sym.includes("RELIANCE")) tvSymbol = "BSE:RELIANCE";
+  else if (sym.includes("SBIN")) tvSymbol = "BSE:SBIN";
 
-      function renderTradingViewChart(sym) {
-      let tvSymbol = "NSE:" + sym.replace(".NS", "");
-      if (sym === "CL=F") tvSymbol = "MCX:CRUDEOIL1!";
-      if (sym === "GC=F") tvSymbol = "MCX:GOLD1!";
-      if (sym === "SI=F") tvSymbol = "MCX:SILVER1!";
-      if (sym === "NG=F") tvSymbol = "MCX:NATURALGAS1!";
-      if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
-      if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
-
-      const container = document.getElementById("tvChart");
-      container.innerHTML = `
-        <iframe 
-          style="width: 100%; height: 100%; border: none; border-radius: 8px;" 
-          src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&studies_overrides={}&overrides={}&enabled_features=[]&disabled_features=[]&locale=in&utm_source=localhost&utm_medium=widget&utm_campaign=chart&utm_term=${encodeURIComponent(tvSymbol)}">
-        </iframe>
-      `;
-    }
-
-    }
-
+  const container = document.getElementById("tvChart");
+  container.innerHTML = `
+    <iframe 
+      style="width: 100%; height: 100%; min-height: 480px; border: none; border-radius: 8px;" 
+      src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=131722&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&locale=in">
+    </iframe>
+  `;
+}
     function renderBrokerForm() {
       const b = document.getElementById("brokerSelect").value;
       const f = document.getElementById("brokerFields");
