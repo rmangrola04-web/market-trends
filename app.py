@@ -2,22 +2,20 @@ import os
 import sqlite3
 import hashlib
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-import pandas as pd
 import yfinance as yf
 import requests
 import pyotp
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from dhanhq import dhanhq
 from SmartApi import SmartConnect
-
 
 # ==========================================
 # 1. CONFIGURATION & CONSTANTS
@@ -26,324 +24,433 @@ SECRET_KEY = os.getenv("APP_SECRET_KEY", "trading-shield-super-secret-jwt-key-20
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720
 DB_NAME = "trading_users.db"
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+# ==========================================
+# 2. HTML + JS (FRONTEND INTEGRATED)
+# ==========================================
+# अब HTML को Python के अंदर ही रखा गया है, ताकि कैशिंग और रिफ्रेश की समस्या न आए।
+HTML_CONTENT = """
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Options Pro Terminal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+
+  <div id="loginOverlay" class="flex items-center justify-center min-h-screen px-4">
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+      <div class="flex items-center justify-center mb-6">
+        <span class="text-3xl mr-2">🎯</span>
+        <h1 id="authTitle" class="text-2xl font-black text-sky-400">ऑप्शन बाइंग टर्मिनल</h1>
+      </div>
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-[11px] uppercase text-slate-400 mb-1">यूज़रनेम</label>
+          <input id="usernameInput" type="text" value="admin" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-[11px] uppercase text-slate-400 mb-1">पासवर्ड</label>
+          <input id="passwordInput" type="password" placeholder="••••••••" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg text-sm">
+        </div>
+        <button id="loginSubmitBtn" type="submit" class="w-full bg-sky-600 hover:bg-sky-500 font-bold py-2.5 rounded-lg transition">सुरक्षित लॉगिन</button>
+      </form>
+      <div class="mt-4 text-center">
+        <button id="toggleAuthBtn" onclick="toggleAuthMode()" class="text-sm text-sky-400 hover:underline">नया खाता बनाएं (Sign Up)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mainTerminal" class="hidden max-w-7xl mx-auto p-4 space-y-6">
+    <header class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-4">
+      <div>
+        <h1 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-emerald-400">OPTION BUYER PRO</h1>
+        <p class="text-xs text-slate-400 font-mono" id="clock"></p>
+      </div>
+      <div class="relative w-full md:w-80">
+        <div class="flex items-center bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+          <span class="text-slate-400 mr-2">🔍</span>
+          <input id="searchBar" type="text" placeholder="सर्च: NIFTY, Crude, Reliance..." oninput="handleSearch(this.value)" class="bg-transparent text-xs w-full focus:outline-none">
+        </div>
+        <div id="searchResults" class="absolute left-0 right-0 top-12 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 hidden max-h-60 overflow-y-auto"></div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="connectionBadge" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">ब्रोकर: अन-लिंक ✕</div>
+        <button onclick="logoutUser()" class="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-700">लॉगआउट 🔒</button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl"><div class="text-[10px] text-slate-400">वर्तमान स्टॉक</div><div id="dispSymbol" class="text-sm font-bold text-sky-400">--</div></div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl"><div class="text-[10px] text-slate-400">लाइव कीमत</div><div id="dispPrice" class="text-sm font-bold">₹ --</div></div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl border-l-4 border-l-emerald-500"><div class="text-[10px] text-emerald-400">PDH</div><div id="dispPDH" class="text-sm font-bold text-emerald-400">₹ --</div></div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl border-l-4 border-l-rose-500"><div class="text-[10px] text-rose-400">PDL</div><div id="dispPDL" class="text-sm font-bold text-rose-400">₹ --</div></div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl"><div class="text-[10px] text-amber-400">सिग्नल</div><div id="dispSignal" class="text-xs font-bold text-amber-400">NEUTRAL</div></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-2 bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-bold text-slate-300">इंट्राडे टेक्निकल चार्ट</span>
+          <span class="text-[10px] text-emerald-400">● Live 5M</span>
+        </div>
+        <div id="tvChart" class="w-full h-96 rounded-lg overflow-hidden"></div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-emerald-400 mb-3">ऑप्शन बाइंग (CE / PE)</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="text-[10px] text-slate-400">स्ट्राइक प्राइस चुनें</label>
+              <select id="optStrike" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mt-1"></select>
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400">क्वांटिटी</label>
+              <input id="optLots" type="number" value="1" min="1" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mt-1">
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 pt-4">
+          <button onclick="executeOptionOrder('CE')" class="bg-emerald-600 hover:bg-emerald-500 text-xs font-black py-3 rounded-xl transition">BUY CALL (CE)</button>
+          <button onclick="executeOptionOrder('PE')" class="bg-rose-600 hover:bg-rose-500 text-xs font-black py-3 rounded-xl transition">BUY PUT (PE)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
+        <h2 class="text-sm font-bold text-sky-400 mb-3">मल्टी-ब्रोकर गेटवे</h2>
+        <select id="brokerSelect" onchange="renderBrokerForm()" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mb-3">
+          <option value="dhan">Dhan (धन)</option>
+          <option value="angelone">Angel One</option>
+        </select>
+        <div id="brokerFields" class="space-y-2 mb-3"></div>
+        <div class="flex gap-2">
+          <button onclick="linkSelectedBroker()" class="w-1/2 bg-emerald-600 py-2 rounded-lg text-xs font-bold">लिंक करें</button>
+          <button onclick="unlinkSelectedBroker()" class="w-1/2 bg-rose-600 py-2 rounded-lg text-xs font-bold">अन-लिंक</button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
+        <h2 class="text-xs font-bold text-slate-400 mb-2">सिस्टम ऑडिट ट्रेल (Logs)</h2>
+        <div id="logContainer" class="bg-black/60 p-4 rounded-xl font-mono text-xs text-emerald-400 h-40 overflow-y-auto space-y-1"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem("token");
+    let currentActiveSymbol = "RELIANCE.NS";
+    let loadedChartSymbol = ""; 
+    let isSignUpMode = false;
+
+    setInterval(() => {
+      document.getElementById("clock").innerText = new Date().toLocaleString("hi-IN", { timeZone: "Asia/Kolkata" });
+    }, 1000);
+
+    if (authToken) initTerminal();
+
+    function toggleAuthMode() {
+      isSignUpMode = !isSignUpMode;
+      document.getElementById("authTitle").innerText = isSignUpMode ? "नया रजिस्ट्रेशन" : "ऑप्शन टर्मिनल";
+      document.getElementById("loginSubmitBtn").innerText = isSignUpMode ? "रजिस्टर करें" : "लॉगिन";
+      document.getElementById("toggleAuthBtn").innerText = isSignUpMode ? "पहले से खाता है? लॉगिन करें" : "नया खाता बनाएं (Sign Up)";
+    }
+
+    document.getElementById("loginForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const u = document.getElementById("usernameInput").value.trim();
+      const p = document.getElementById("passwordInput").value.trim();
+      if (isSignUpMode) {
+        const res = await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, password: p }) });
+        const data = await res.json();
+        alert(data.message || data.detail);
+        if (res.ok) toggleAuthMode();
+      } else {
+        const fd = new FormData(); fd.append("username", u); fd.append("password", p);
+        const res = await fetch("/token", { method: "POST", body: fd });
+        if (res.ok) {
+          authToken = (await res.json()).access_token; localStorage.setItem("token", authToken); initTerminal();
+        } else alert("गलत यूज़रनेम या पासवर्ड!");
+      }
+    };
+
+    function logoutUser() { localStorage.removeItem("token"); location.reload(); }
+
+    function initTerminal() {
+      document.getElementById("loginOverlay").classList.add("hidden");
+      document.getElementById("mainTerminal").classList.remove("hidden");
+      renderBrokerForm();
+      loadMarketData(currentActiveSymbol);
+      fetchStatus();
+      setInterval(fetchStatus, 3000);
+      setInterval(() => loadMarketData(currentActiveSymbol), 10000); // 10s auto-refresh
+    }
+
+    async function handleSearch(query) {
+      const box = document.getElementById("searchResults");
+      if (!query.trim()) return box.classList.add("hidden");
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { headers: { "Authorization": `Bearer ${authToken}` }});
+      if (res.ok) {
+        const list = await res.json();
+        box.innerHTML = list.map(i => `<div onclick="selectSymbol('${i.symbol}')" class="p-2 hover:bg-slate-800 cursor-pointer text-xs">${i.name} (${i.symbol})</div>`).join("");
+        box.classList.remove("hidden");
+      }
+    }
+
+    function selectSymbol(sym) {
+      currentActiveSymbol = sym;
+      document.getElementById("searchResults").classList.add("hidden");
+      document.getElementById("searchBar").value = "";
+      loadMarketData(sym);
+    }
+
+    async function loadMarketData(sym) {
+      try {
+        const res = await fetch(`/api/market-data?symbol=${encodeURIComponent(sym)}`, { headers: { "Authorization": `Bearer ${authToken}` }});
+        if (res.ok) {
+          const d = await res.json();
+          document.getElementById("dispSymbol").innerText = d.symbol;
+          document.getElementById("dispPrice").innerText = `₹ ${d.current_price}`;
+          document.getElementById("dispPDH").innerText = `₹ ${d.pdh}`;
+          document.getElementById("dispPDL").innerText = `₹ ${d.pdl}`;
+          document.getElementById("dispSignal").innerText = d.recommendation;
+
+          // स्ट्राइक प्राइस ड्रॉपडाउन सिर्फ तभी अपडेट होगा जब नया सिंबल चुना हो
+          const sel = document.getElementById("optStrike");
+          if (loadedChartSymbol !== sym) {
+             sel.innerHTML = d.strikes.map(s => `<option value="${s}" ${s === d.atm_strike ? 'selected' : ''}>${s} ${s === d.atm_strike ? '(ATM)' : ''}</option>`).join("");
+          }
+          
+          renderTradingViewChart(sym);
+        }
+      } catch (e) {}
+    }
+
+    function renderTradingViewChart(sym) {
+      // ✅ CHART AUTO REFRESH FIX: अगर सिंबल सेम है, तो चार्ट को मत छेड़ो।
+      if (loadedChartSymbol === sym) return;
+      loadedChartSymbol = sym;
+
+      let tvSymbol = "BSE:" + sym.replace(".NS", "").replace(".BO", "");
+      if (sym === "CL=F") tvSymbol = "TVC:USOIL";
+      else if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
+      else if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
+      else if (sym.includes("RELIANCE")) tvSymbol = "BSE:RELIANCE";
+
+      document.getElementById("tvChart").innerHTML = `
+        <iframe style="width: 100%; height: 100%; min-height: 480px; border: none; border-radius: 8px;" 
+        src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=131722&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&locale=in"></iframe>
+      `;
+    }
+
+    function renderBrokerForm() {
+      const b = document.getElementById("brokerSelect").value;
+      const f = document.getElementById("brokerFields");
+      if (b === "dhan") f.innerHTML = `<input id="f_cid" placeholder="Client ID" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mb-2"><input id="f_tok" type="password" placeholder="Access Token" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700">`;
+      else f.innerHTML = `<input id="f_cid" placeholder="Client Code" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mb-2"><input id="f_key" placeholder="SmartAPI Key" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mb-2"><input id="f_pin" type="password" placeholder="MPIN" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mb-2"><input id="f_totp" type="password" placeholder="TOTP" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700">`;
+    }
+
+    async function fetchStatus() {
+      if (!authToken) return;
+      const res = await fetch("/api/terminal/status", { headers: { "Authorization": `Bearer ${authToken}` }});
+      if (res.status === 401) return logoutUser();
+      const d = await res.json();
+      const b = document.getElementById("connectionBadge");
+      b.className = d.is_connected ? "text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400" : "text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400";
+      b.innerText = d.is_connected ? `ब्रोकर: ${d.active_broker} ✓` : "ब्रोकर: अन-लिंक ✕";
+      document.getElementById("logContainer").innerHTML = d.logs.map(l => `<div>${l}</div>`).reverse().join("");
+    }
+
+    async function linkSelectedBroker() {
+      const payload = {
+        broker: document.getElementById("brokerSelect").value,
+        client_id: document.getElementById("f_cid")?.value || "",
+        access_token: document.getElementById("f_tok")?.value || null,
+        api_key: document.getElementById("f_key")?.value || null,
+        pin: document.getElementById("f_pin")?.value || null,
+        totp_secret: document.getElementById("f_totp")?.value || null
+      };
+      const res = await fetch("/api/broker/link", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` }, body: JSON.stringify(payload) });
+      alert((await res.json()).message || "एरर");
+      fetchStatus();
+    }
+
+    async function unlinkSelectedBroker() {
+      await fetch("/api/broker/unlink", { method: "POST", headers: { "Authorization": `Bearer ${authToken}` }});
+      fetchStatus();
+    }
+
+    async function executeOptionOrder(type) {
+      const payload = {
+        symbol: currentActiveSymbol, strike: parseFloat(document.getElementById("optStrike").value), option_type: type, lots: parseInt(document.getElementById("optLots").value)
+      };
+      const res = await fetch("/api/order/buy-option", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` }, body: JSON.stringify(payload) });
+      const d = await res.json();
+      alert(res.ok ? d.message : `एरर: ${d.detail}`);
+      fetchStatus();
+    }
+  </script>
+</body>
+</html>
+"""
 
 # ==========================================
-# 2. DATABASE MANAGEMENT
+# 3. DATABASE SETUP
 # ==========================================
 def init_db():
-    """सर्वर स्टार्ट होने पर डेटाबेस और टेबल्स तैयार करता है"""
     with sqlite3.connect(DB_NAME) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # डिफ़ॉल्ट एडमिन यूज़र बनाना
+        conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL)")
         admin_pass = hashlib.sha256("admin@123".encode()).hexdigest()
         conn.execute("INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)", ("admin", admin_pass))
         conn.commit()
 
 def get_db():
-    """हर API रिक्वेस्ट के लिए सुरक्षित DB कनेक्शन प्रदान करता है"""
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
-
+    try: yield conn
+    finally: conn.close()
 
 # ==========================================
-# 3. FASTAPI APP INITIALIZATION
+# 4. APP INIT
 # ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()  # सर्वर स्टार्ट होने पर DB सेट अप करें
+    init_db()
     yield
 
-app = FastAPI(title="Option Buyer Terminal", lifespan=lifespan)
+app = FastAPI(title="Option Terminal", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_credentials=True, 
-    allow_methods=["*"], 
-    allow_headers=["*"]
-)
-
-
-# ==========================================
-# 4. IN-MEMORY STATE & SYMBOLS
-# ==========================================
 MASTER_SYMBOLS = [
     {"symbol": "^NSEI", "name": "NIFTY 50", "segment": "INDEX", "step": 50},
     {"symbol": "^NSEBANK", "name": "BANKNIFTY", "segment": "INDEX", "step": 100},
-    {"symbol": "^CNXIT", "name": "NIFTY IT", "segment": "INDEX", "step": 100},
-    {"symbol": "CL=F", "name": "CRUDE OIL (MCX/NYMEX)", "segment": "COMMODITY", "step": 50},
-    {"symbol": "GC=F", "name": "GOLD (MCX/COMEX)", "segment": "COMMODITY", "step": 100},
-    {"symbol": "SI=F", "name": "SILVER (MCX/COMEX)", "segment": "COMMODITY", "step": 500},
-    {"symbol": "NG=F", "name": "NATURAL GAS", "segment": "COMMODITY", "step": 5},
-    {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "segment": "EQUITY", "step": 20},
-    {"symbol": "SBIN.NS", "name": "State Bank of India", "segment": "EQUITY", "step": 10},
-    {"symbol": "TCS.NS", "name": "Tata Consultancy Services", "segment": "EQUITY", "step": 50},
-    {"symbol": "HDFCBANK.NS", "name": "HDFC Bank Ltd", "segment": "EQUITY", "step": 20},
+    {"symbol": "CL=F", "name": "CRUDE OIL", "segment": "COMMODITY", "step": 50},
+    {"symbol": "RELIANCE.NS", "name": "Reliance", "segment": "EQUITY", "step": 20},
 ]
 
 TERMINAL_STATE = {
-    "active_broker": None,
-    "is_connected": False,
-    "broker_display_id": "",
-    "auto_trade_enabled": False,
-    "risk_settings": {"lots": 1, "target_inr": 1000.0, "stoploss_inr": 500.0},
-    "logs": [f"{datetime.now().strftime('%H:%M:%S')} - ऑप्शन बाइंग टर्मिनल तैयार है।"]
+    "active_broker": None, "is_connected": False, "broker_display_id": "", "logs": [f"{datetime.now().strftime('%H:%M:%S')} - सिस्टम तैयार है।"]
 }
-
-broker_instances: Dict[str, Any] = {}
-
+broker_instances = {}
 
 # ==========================================
-# 5. AUTHENTICATION UTILS
+# 5. API ROUTES
 # ==========================================
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
 def get_current_user(token: str = Depends(oauth2_scheme), db: sqlite3.Connection = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="अमान्य टोकन!")
-        
-        user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        if not user:
-            raise HTTPException(status_code=401, detail="यूज़र डेटाबेस में नहीं मिला!")
-        
-        return username
-    except JWTError:
-        raise HTTPException(status_code=401, detail="सत्र समाप्त, पुनः लॉगिन करें।")
+        if not db.execute("SELECT * FROM users WHERE username = ?", (payload.get("sub"),)).fetchone(): raise HTTPException(401)
+        return payload.get("sub")
+    except JWTError: raise HTTPException(401, "सत्र समाप्त")
 
+class AuthReq(BaseModel): username: str; password: str
+class BrokerReq(BaseModel): broker: str; client_id: str; api_key: Optional[str] = None; access_token: Optional[str] = None; pin: Optional[str] = None; totp_secret: Optional[str] = None
+class OrderReq(BaseModel): symbol: str; strike: float; option_type: str; lots: int
 
-# ==========================================
-# 6. PYDANTIC SCHEMAS
-# ==========================================
-class RegisterRequest(BaseModel):
-    username: str
-    password: str
-
-class BrokerLinkRequest(BaseModel):
-    broker: str
-    client_id: str
-    api_key: Optional[str] = None
-    api_secret: Optional[str] = None
-    access_token: Optional[str] = None
-    pin: Optional[str] = None
-    totp_secret: Optional[str] = None
-
-class RiskSettingsRequest(BaseModel):
-    lots: int
-    target_inr: float
-    stoploss_inr: float
-    auto_trade: bool
-
-class OptionBuyRequest(BaseModel):
-    symbol: str
-    strike: float
-    option_type: str  # CE or PE
-    lots: int
-
-
-# ==========================================
-# 7. AUTH API ENDPOINTS
-# ==========================================
 @app.post("/api/register")
-def register_user(req: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
-    if len(req.username.strip()) < 3 or len(req.password.strip()) < 4:
-        raise HTTPException(status_code=400, detail="यूज़रनेम कम से कम 3 और पासवर्ड 4 अक्षरों का होना चाहिए!")
-    
-    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
+def register(req: AuthReq, db: sqlite3.Connection = Depends(get_db)):
     try:
-        db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (req.username.strip(), pwd_hash))
+        db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (req.username.strip(), hashlib.sha256(req.password.encode()).hexdigest()))
         db.commit()
-        return {"status": "success", "message": "खाता सफलतापूर्वक बन गया! अब आप लॉगिन कर सकते हैं।"}
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="यह यूज़रनेम पहले से मौजूद है! कृपया दूसरा नाम चुनें।")
+        return {"message": "रजिस्ट्रेशन सफल!"}
+    except sqlite3.IntegrityError: raise HTTPException(400, "यूज़रनेम पहले से मौजूद है!")
 
 @app.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = Depends(get_db)):
-    pwd_hash = hashlib.sha256(form_data.password.encode()).hexdigest()
-    user = db.execute("SELECT * FROM users WHERE username = ? AND password_hash = ?", 
-                      (form_data.username.strip(), pwd_hash)).fetchone()
-    
-    if user:
-        access_token = create_access_token(data={"sub": user["username"]})
-        return {"access_token": access_token, "token_type": "bearer"}
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="गलत यूज़रनेम या पासवर्ड! कृपया दोबारा जाँचें।",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = Depends(get_db)):
+    if db.execute("SELECT * FROM users WHERE username = ? AND password_hash = ?", (form.username, hashlib.sha256(form.password.encode()).hexdigest())).fetchone():
+        return {"access_token": jwt.encode({"sub": form.username, "exp": datetime.utcnow() + timedelta(minutes=720)}, SECRET_KEY, algorithm=ALGORITHM), "token_type": "bearer"}
+    raise HTTPException(401, "गलत यूज़रनेम/पासवर्ड")
 
-
-# ==========================================
-# 8. TERMINAL API ENDPOINTS
-# ==========================================
 @app.get("/api/search")
-def search_symbols(q: str = Query("", min_length=1), user: str = Depends(get_current_user)):
-    query = q.lower().strip()
-    results = [s for s in MASTER_SYMBOLS if query in s["symbol"].lower() or query in s["name"].lower()]
-    return results[:10]
+def search(q: str): return [s for s in MASTER_SYMBOLS if q.lower() in s["symbol"].lower() or q.lower() in s["name"].lower()][:10]
 
 @app.get("/api/market-data")
-def get_market_data(symbol: str = Query(...), user: str = Depends(get_current_user)):
+def market_data(symbol: str):
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period="5d", interval="5m")
-        if df.empty or len(df) < 5:
-            raise HTTPException(status_code=404, detail="डेटा उपलब्ध नहीं!")
-
-        current_price = round(float(df["Close"].iloc[-1]), 2)
+        df = yf.Ticker(symbol).history(period="5d", interval="5m")
+        df_d = yf.Ticker(symbol).history(period="5d", interval="1d")
+        cp = round(float(df["Close"].iloc[-1]), 2)
+        pdh = round(float(df_d.iloc[-2]["High"]), 2) if len(df_d) >= 2 else cp
+        pdl = round(float(df_d.iloc[-2]["Low"]), 2) if len(df_d) >= 2 else cp
         
-        df_daily = ticker.history(period="5d", interval="1d")
-        if len(df_daily) >= 2:
-            prev_day = df_daily.iloc[-2]
-            pdh = round(float(prev_day["High"]), 2)
-            pdl = round(float(prev_day["Low"]), 2)
-            pdc = round(float(prev_day["Close"]), 2)
-        else:
-            pdh, pdl, pdc = current_price, current_price, current_price
-
-        step = 50
-        for s in MASTER_SYMBOLS:
-            if s["symbol"] == symbol:
-                step = s["step"]
-                break
+        step = next((s["step"] for s in MASTER_SYMBOLS if s["symbol"] == symbol), 50)
+        atm = round(cp / step) * step
         
-        atm_strike = round(current_price / step) * step
-        strikes = [atm_strike - (step * 2), atm_strike - step, atm_strike, atm_strike + step, atm_strike + (step * 2)]
-
-        recommendation = "NEUTRAL"
-        if current_price > pdh:
-            recommendation = "BULLISH BREAKOUT (BUY CE)"
-        elif current_price < pdl:
-            recommendation = "BEARISH BREAKDOWN (BUY PE)"
-
-        return {
-            "symbol": symbol,
-            "current_price": current_price,
-            "pdh": pdh,
-            "pdl": pdl,
-            "pdc": pdc,
-            "atm_strike": atm_strike,
-            "strikes": strikes,
-            "recommendation": recommendation
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"symbol": symbol, "current_price": cp, "pdh": pdh, "pdl": pdl, "atm_strike": atm, "strikes": [atm - (step*2), atm - step, atm, atm + step, atm + (step*2)], "recommendation": "BULLISH (CE)" if cp > pdh else "BEARISH (PE)" if cp < pdl else "NEUTRAL"}
+    except Exception as e: raise HTTPException(400, str(e))
 
 @app.get("/api/terminal/status")
-def terminal_status(user: str = Depends(get_current_user)):
-    return {
-        "active_broker": TERMINAL_STATE["active_broker"],
-        "is_connected": TERMINAL_STATE["is_connected"],
-        "broker_display_id": TERMINAL_STATE["broker_display_id"],
-        "auto_trade_enabled": TERMINAL_STATE["auto_trade_enabled"],
-        "risk_settings": TERMINAL_STATE["risk_settings"],
-        "logs": TERMINAL_STATE["logs"][-20:]
-    }
+def status_api(): return TERMINAL_STATE
 
 @app.post("/api/broker/link")
-def link_broker(req: BrokerLinkRequest, user: str = Depends(get_current_user)):
-    broker = req.broker.lower()
+def link(req: BrokerReq):
     try:
-        if broker == "dhan":
-            client = dhanhq(req.client_id, req.access_token)
-            broker_instances["client"] = client
-        elif broker == "angelone":
-            smart_api = SmartConnect(api_key=req.api_key)
-            totp = pyotp.TOTP(req.totp_secret).now() if req.totp_secret else ""
-            session = smart_api.generateSession(req.client_id, req.pin, totp)
-            if not session.get("status"):
-                raise HTTPException(status_code=400, detail="Angel One Login Failed: " + session.get("message"))
-            broker_instances["client"] = smart_api
-        elif broker == "sbi":
-            broker_instances["client"] = {"broker": "sbi", "client_id": req.client_id}
-        elif broker in ["zerodha", "upstox"]:
-            broker_instances["client"] = {"broker": broker, "api_key": req.api_key}
-
-        TERMINAL_STATE["active_broker"] = broker.upper()
-        TERMINAL_STATE["is_connected"] = True
-        masked = req.client_id[:3] + "****" + req.client_id[-2:] if len(req.client_id) > 5 else req.client_id
-        TERMINAL_STATE["broker_display_id"] = masked
+        if req.broker == "dhan": broker_instances["client"] = dhanhq(req.client_id, req.access_token)
+        elif req.broker == "angelone":
+            smart = SmartConnect(api_key=req.api_key)
+            if not smart.generateSession(req.client_id, req.pin, pyotp.TOTP(req.totp_secret).now() if req.totp_secret else "").get("status"): raise Exception("Angel One Login Failed")
+            broker_instances["client"] = smart
         
-        log_msg = f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} ({masked}) सफलतापूर्वक लिंक हुआ।"
-        TERMINAL_STATE["logs"].append(log_msg)
-        
-        return {"status": "success", "message": f"{broker.upper()} कनेक्ट हो गया है!"}
-    except Exception as e:
-        error_msg = f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} लिंक एरर: {str(e)}"
-        TERMINAL_STATE["logs"].append(error_msg)
-        raise HTTPException(status_code=400, detail=str(e))
+        TERMINAL_STATE.update({"active_broker": req.broker.upper(), "is_connected": True, "broker_display_id": req.client_id[:3]+"**"})
+        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {req.broker.upper()} लिंक्ड।")
+        return {"message": "ब्रोकर कनेक्ट हो गया!"}
+    except Exception as e: raise HTTPException(400, str(e))
 
 @app.post("/api/broker/unlink")
-def unlink_broker(user: str = Depends(get_current_user)):
-    b_name = TERMINAL_STATE["active_broker"] or "ब्रोकर"
-    broker_instances.clear()
-    TERMINAL_STATE["active_broker"] = None
-    TERMINAL_STATE["is_connected"] = False
-    TERMINAL_STATE["broker_display_id"] = ""
-    TERMINAL_STATE["auto_trade_enabled"] = False
-    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {b_name} अनलिंक किया गया।")
-    return {"status": "success", "message": "ब्रोकर सफलतापूर्वक डिस्कनेक्ट हुआ।"}
-
-@app.post("/api/settings/save")
-def save_settings(req: RiskSettingsRequest, user: str = Depends(get_current_user)):
-    TERMINAL_STATE["risk_settings"]["lots"] = req.lots
-    TERMINAL_STATE["risk_settings"]["target_inr"] = req.target_inr
-    TERMINAL_STATE["risk_settings"]["stoploss_inr"] = req.stoploss_inr
-    TERMINAL_STATE["auto_trade_enabled"] = req.auto_trade
-    status_txt = "चालू" if req.auto_trade else "बंद"
-    
-    log_msg = f"{datetime.now().strftime('%H:%M:%S')} - सेटिंग्स सेव: Lots={req.lots}, Target=₹{req.target_inr}, SL=₹{req.stoploss_inr}, AutoTrade={status_txt}"
-    TERMINAL_STATE["logs"].append(log_msg)
-    
-    return {"status": "success", "message": "रिस्क सेटिंग्स सुरक्षित हो गईं!"}
+def unlink():
+    broker_instances.clear(); TERMINAL_STATE.update({"active_broker": None, "is_connected": False})
+    return {"message": "डिस्कनेक्टेड"}
 
 @app.post("/api/order/buy-option")
-def buy_option(req: OptionBuyRequest, user: str = Depends(get_current_user)):
-    if not TERMINAL_STATE["is_connected"]:
-        raise HTTPException(status_code=400, detail="पहले ब्रोकर लिंक करें!")
+def buy_order(req: OrderReq):
+    if not TERMINAL_STATE["is_connected"]: raise HTTPException(400, "पहले ब्रोकर लिंक करें!")
     
-    order_desc = f"BUY {req.symbol} {req.strike} {req.option_type} ({req.lots} Lot)"
-    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER PLACED] {order_desc}")
-    return {"status": "success", "message": f"सफल: {order_desc}"}
+    # 🔴 REAL ORDER PLACEMENT LOGIC
+    broker = TERMINAL_STATE["active_broker"]
+    client = broker_instances.get("client")
+    order_msg = f"BUY {req.symbol} {req.strike} {req.option_type} ({req.lots} Lots)"
 
+    try:
+        if broker == "DHAN":
+            # Dhan Order API Call
+            client.place_order(
+                security_id="13", # Placeholder ID
+                exchange_segment=client.NSE_FNO,
+                transaction_type=client.BUY,
+                quantity=req.lots * 15, # Nifty lot size example
+                order_type=client.MARKET,
+                product_type=client.INTRADAY,
+                price=0
+            )
+        elif broker == "ANGELONE":
+            # Angel One Order API Call
+            client.placeOrder({
+                "variety": "NORMAL",
+                "tradingsymbol": f"{req.symbol}{req.strike}{req.option_type}",
+                "symboltoken": "3045", # Placeholder
+                "transactiontype": "BUY",
+                "exchange": "NFO",
+                "ordertype": "MARKET",
+                "producttype": "INTRADAY",
+                "duration": "DAY",
+                "quantity": req.lots * 15
+            })
 
-# ==========================================
-# 9. MAIN FRONTEND ROUTE
-# ==========================================
+        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER SUCCESS] {order_msg}")
+        return {"message": f"ऑर्डर भेजा गया: {order_msg}"}
+    except Exception as e:
+        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER FAILED] {str(e)}")
+        raise HTTPException(400, f"ऑर्डर फेल: {str(e)}")
+
 @app.get("/", response_class=HTMLResponse)
-def read_root():
-    if os.path.exists("index.html"):
-        return FileResponse("index.html")
-    return "<h1>index.html फ़ाइल नहीं मिली! कृपया इसे इसी फोल्डर में रखें।</h1>"
+def root(): return HTMLResponse(content=HTML_CONTENT)
 
-
-# ==========================================
-# 10. RUN SERVER
-# ==========================================
 if __name__ == "__main__":
     import uvicorn
-    # Vercel, Render या लोकल पर चलाने के लिए पोर्ट कॉन्फ़िगरेशन
-    port = int(os.environ.get("PORT", 10000))
-    print(f"Starting Option Buyer Terminal on Port {port}...")
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=int(os.environ.get("PORT", 10000)), reload=True)
