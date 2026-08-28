@@ -306,20 +306,24 @@
       if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
       if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
 
-      document.getElementById("tvChart").innerHTML = "";
-      new TradingView.widget({
-        "autosize": true,
-        "symbol": tvSymbol,
-        "interval": "5",
-        "timezone": "Asia/Kolkata",
-        "theme": "dark",
-        "style": "1",
-        "locale": "in",
-        "toolbar_bg": "#0f172a",
-        "enable_publishing": false,
-        "hide_side_toolbar": false,
-        "container_id": "tvChart"
-      });
+      function renderTradingViewChart(sym) {
+      let tvSymbol = "NSE:" + sym.replace(".NS", "");
+      if (sym === "CL=F") tvSymbol = "MCX:CRUDEOIL1!";
+      if (sym === "GC=F") tvSymbol = "MCX:GOLD1!";
+      if (sym === "SI=F") tvSymbol = "MCX:SILVER1!";
+      if (sym === "NG=F") tvSymbol = "MCX:NATURALGAS1!";
+      if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
+      if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
+
+      const container = document.getElementById("tvChart");
+      container.innerHTML = `
+        <iframe 
+          style="width: 100%; height: 100%; border: none; border-radius: 8px;" 
+          src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f1f3f6&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&studies_overrides={}&overrides={}&enabled_features=[]&disabled_features=[]&locale=in&utm_source=localhost&utm_medium=widget&utm_campaign=chart&utm_term=${encodeURIComponent(tvSymbol)}">
+        </iframe>
+      `;
+    }
+
     }
 
     function renderBrokerForm() {
