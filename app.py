@@ -233,4 +233,7 @@ def buy_option(req: OptionBuyRequest, user: str = Depends(get_current_user)):
     
     order_desc = f"BUY {req.symbol} {req.strike} {req.option_type} ({req.lots} Lot)"
     TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER PLACED] {order_desc}")
-    return {"status": "success", "message": f"सफल: {order_desc}"}
+    return {"status": "success", "message": f"सफल: {order_desc}"}if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)
