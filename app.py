@@ -216,6 +216,11 @@ def unlink_broker(user: str = Depends(get_current_user)):
     TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {b_name} अनलिंक किया गया।")
     return {"status": "success", "message": "ब्रोकर सफलतापूर्वक डिस्कनेक्ट हुआ।"}
 
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    if os.path.exists("index.html"):
+        return FileResponse("index.html")
+    return "<h1>index.html फ़ाइल नहीं मिली!</h1>"
 @app.post("/api/settings/save")
 def save_settings(req: RiskSettingsRequest, user: str = Depends(get_current_user)):
     TERMINAL_STATE["risk_settings"]["lots"] = req.lots
