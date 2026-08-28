@@ -1,300 +1,445 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>All-India Universal Cash & F&O Terminal</title>
-    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Options Pro Terminal - PDH/PDL Breakout</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- TradingView Chart Widget -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
-<body class="bg-[#080c14] text-slate-100 font-sans p-3 sm:p-5">
-    <div class="max-w-7xl mx-auto space-y-4">
-        
-        <!-- Header & Universal Search Engine -->
-        <div class="bg-[#0f172a] p-4 rounded-xl border border-slate-800 space-y-3 shadow-2xl">
-            <div class="flex flex-wrap justify-between items-center gap-3">
-                <div class="flex items-center space-x-3">
-                    <span class="inline-block w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
-                    <h1 class="text-lg font-black tracking-wider text-white uppercase">ALL-INDIA LIVE CASH & F&O TERMINAL</h1>
-                </div>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
 
-                <!-- Universal Search Input (Any Stock on NSE/BSE) -->
-                <div class="flex items-center gap-2 w-full sm:w-auto">
-                    <input type="text" id="customSearchInput" placeholder="Search ANY Cash Stock (e.g. TRENT, SUZLON, IDEA)..." 
-                           class="bg-[#1e293b] text-emerald-300 font-bold px-4 py-2 rounded-lg border border-slate-700 outline-none w-full sm:w-80 text-sm focus:border-emerald-500 uppercase">
-                    <button onclick="searchCustomStock()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg uppercase">
-                        Analyze
-                    </button>
-                </div>
-            </div>
-
-            <!-- Category & Timeframes -->
-            <div class="flex flex-wrap justify-between items-center gap-3 pt-2 border-t border-slate-800">
-                <div class="flex flex-wrap gap-2" id="catGroup">
-                    <button onclick="setCategory('INDEX F&O / FUTURES')" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white">INDEX F&O</button>
-                    <button onclick="setCategory('COMMODITIES & FUTURES')" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">COMMODITIES</button>
-                    <button onclick="setCategory('TOP CASH & POPULAR')" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700">POPULAR CASH</button>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-1.5 bg-[#080c14] p-1 rounded-lg border border-slate-800" id="tfGroup">
-                    <button onclick="changeTimeframe('1m')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">1M</button>
-                    <button onclick="changeTimeframe('2m')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">2M</button>
-                    <button onclick="changeTimeframe('3m')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">3M</button>
-                    <button onclick="changeTimeframe('5m')" class="px-2.5 py-1 text-xs font-bold rounded bg-emerald-600 text-white">5M</button>
-                    <button onclick="changeTimeframe('15m')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">15M</button>
-                    <button onclick="changeTimeframe('30m')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">30M</button>
-                    <button onclick="changeTimeframe('1h')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">1H</button>
-                    <button onclick="changeTimeframe('1d')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">1D</button>
-                    <button onclick="changeTimeframe('1wk')" class="px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white">1WK</button>
-                </div>
-
-                <select id="stockSelector" onchange="changeSymbol(this.value)" class="bg-[#1e293b] text-emerald-400 font-bold px-3 py-1.5 text-xs rounded-lg border border-slate-700 outline-none cursor-pointer">
-                </select>
-            </div>
+  <!-- 1. LOGIN OVERLAY -->
+  <div id="loginOverlay" class="flex items-center justify-center min-h-screen px-4">
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+      <div class="flex items-center justify-center mb-6">
+        <span class="text-3xl mr-2">🎯</span>
+        <h1 class="text-2xl font-black text-sky-400">ऑप्शन बाइंग टर्मिनल</h1>
+      </div>
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-[11px] uppercase tracking-wider text-slate-400 mb-1">यूज़रनेम</label>
+          <input id="uName" type="text" value="admin" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
         </div>
-
-        <!-- Signal & Strike Information -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div class="bg-[#0f172a] p-4 rounded-xl border border-slate-800 shadow">
-                <div class="text-xs text-slate-400 uppercase tracking-wider">Analysis & Signal</div>
-                <div id="signalVal" class="text-xl font-black mt-1 text-slate-200">Checking...</div>
-                <div id="rsiVal" class="text-xs text-slate-500 mt-1">RSI (14): --</div>
-            </div>
-            <div class="bg-[#0f172a] p-4 rounded-xl border border-blue-900/40 shadow">
-                <div class="text-xs text-blue-400 font-bold uppercase tracking-wider">Option Strike / ITM Strategy</div>
-                <div id="strikeVal" class="text-sm font-black text-blue-300 mt-1.5">--</div>
-                <div class="text-[11px] text-slate-500 mt-1">Calculated ATM / ITM Strikes</div>
-            </div>
-            <div class="bg-[#0f172a] p-4 rounded-xl border border-slate-800 shadow">
-                <div class="flex justify-between items-center">
-                    <span class="text-xs text-slate-400 uppercase tracking-wider">Active Stock: <span id="activeSym" class="text-emerald-400 font-bold">--</span></span>
-                </div>
-                <div id="ltpVal" class="text-2xl font-black text-white mt-1">₹ --</div>
-            </div>
+        <div>
+          <label class="block text-[11px] uppercase tracking-wider text-slate-400 mb-1">पासवर्ड</label>
+          <input id="uPass" type="password" placeholder="••••••••" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
         </div>
+        <button type="submit" class="w-full bg-sky-600 hover:bg-sky-500 font-bold py-2.5 rounded-lg transition">सुरक्षित लॉगिन</button>
+      </form>
+    </div>
+  </div>
 
-        <!-- Target / Stop-Loss Execution Levels -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div class="bg-[#0f172a] p-3.5 rounded-xl border border-slate-800 flex justify-between items-center">
-                <span class="text-slate-400 text-xs font-bold uppercase">Entry Trigger</span>
-                <span id="entryVal" class="text-lg font-bold text-white">--</span>
-            </div>
-            <div class="bg-[#0f172a] p-3.5 rounded-xl border border-emerald-900/50 flex justify-between items-center">
-                <span class="text-emerald-400 text-xs font-bold uppercase">Target Price</span>
-                <span id="targetVal" class="text-lg font-bold text-emerald-400">--</span>
-            </div>
-            <div class="bg-[#0f172a] p-3.5 rounded-xl border border-rose-900/50 flex justify-between items-center">
-                <span class="text-rose-400 text-xs font-bold uppercase">Stop-Loss (SL)</span>
-                <span id="slVal" class="text-lg font-bold text-rose-400">--</span>
-            </div>
-        </div>
+  <!-- 2. MAIN TERMINAL DASHBOARD -->
+  <div id="mainTerminal" class="hidden max-w-7xl mx-auto p-4 space-y-6">
+    
+    <!-- Top Bar with Real-time Search -->
+    <header class="flex flex-wrap justify-between items-center border-b border-slate-800 pb-4 gap-4">
+      <div>
+        <h1 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-emerald-400">OPTION BUYER PRO</h1>
+        <p class="text-xs text-slate-400 font-mono" id="clock"></p>
+      </div>
 
-        <!-- Support / Resistance Pivot Row -->
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
-            <div class="bg-[#0f172a] p-2.5 rounded-lg border border-rose-900/40">
-                <div class="text-rose-400 font-bold">Resistance 2 (R2)</div>
-                <div id="r2Val" class="text-sm font-bold text-white mt-1">--</div>
-            </div>
-            <div class="bg-[#0f172a] p-2.5 rounded-lg border border-rose-900/30">
-                <div class="text-rose-300 font-bold">Resistance 1 (R1)</div>
-                <div id="r1Val" class="text-sm font-bold text-white mt-1">--</div>
-            </div>
-            <div class="bg-[#0f172a] p-2.5 rounded-lg border border-amber-900/40">
-                <div class="text-amber-400 font-bold">Pivot Point (P)</div>
-                <div id="pVal" class="text-sm font-bold text-white mt-1">--</div>
-            </div>
-            <div class="bg-[#0f172a] p-2.5 rounded-lg border border-emerald-900/30">
-                <div class="text-emerald-300 font-bold">Support 1 (S1)</div>
-                <div id="s1Val" class="text-sm font-bold text-white mt-1">--</div>
-            </div>
-            <div class="bg-[#0f172a] p-2.5 rounded-lg border border-emerald-900/40">
-                <div class="text-emerald-400 font-bold">Support 2 (S2)</div>
-                <div id="s2Val" class="text-sm font-bold text-white mt-1">--</div>
-            </div>
+      <!-- AUTOCOMPLETE SEARCH BAR -->
+      <div class="relative w-full md:w-80">
+        <div class="flex items-center bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+          <span class="text-slate-400 mr-2">🔍</span>
+          <input id="searchBar" type="text" placeholder="सर्च: NIFTY, Crude, SBIN, Reliance..." oninput="handleSearch(this.value)" class="bg-transparent text-xs w-full focus:outline-none text-slate-100 font-semibold">
         </div>
+        <!-- Search Dropdown Results -->
+        <div id="searchResults" class="absolute left-0 right-0 top-12 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 hidden max-h-60 overflow-y-auto"></div>
+      </div>
 
-        <!-- Candlestick Chart -->
-        <div class="bg-[#0f172a] p-4 rounded-xl border border-slate-800 shadow">
-            <div id="chartContainer" style="width: 100%; height: 470px;"></div>
+      <div class="flex items-center gap-3">
+        <div id="connectionBadge" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
+          ब्रोकर: अन-लिंक ✕
         </div>
+        <button onclick="logoutUser()" class="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-700 text-slate-300">लॉगआउट 🔒</button>
+      </div>
+    </header>
+
+    <!-- KEY LEVELS BAR (PDH / PDL / ATM) -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+        <div class="text-[10px] text-slate-400 uppercase">वर्तमान स्टॉक/इंडेक्स</div>
+        <div id="dispSymbol" class="text-sm font-bold text-sky-400">RELIANCE.NS</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl">
+        <div class="text-[10px] text-slate-400 uppercase">लाइव कीमत (CMP)</div>
+        <div id="dispPrice" class="text-sm font-bold text-white">₹ --</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl border-l-4 border-l-emerald-500">
+        <div class="text-[10px] text-emerald-400 uppercase">Previous Day High (PDH)</div>
+        <div id="dispPDH" class="text-sm font-bold text-emerald-400">₹ --</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl border-l-4 border-l-rose-500">
+        <div class="text-[10px] text-rose-400 uppercase">Previous Day Low (PDL)</div>
+        <div id="dispPDL" class="text-sm font-bold text-rose-400">₹ --</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 p-3 rounded-xl col-span-2 md:col-span-1">
+        <div class="text-[10px] text-amber-400 uppercase">सिग्नल / एक्शन</div>
+        <div id="dispSignal" class="text-xs font-bold text-amber-400">NEUTRAL</div>
+      </div>
     </div>
 
-    <script>
-        let categoriesData = {};
-        let currentCategory = "INDEX F&O / FUTURES";
-        let currentSymbol = "NIFTY 50 FUTURES";
-        let currentTimeframe = "5m";
-        let chart = null;
-        let candleSeries = null;
-        let priceLines = [];
+    <!-- MAIN GRID: CHART + OPTION BUYING PANEL -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        async function loadCategories() {
-            try {
-                const res = await fetch('/api/categories');
-                categoriesData = await res.json();
-                populateDropdown();
-                fetchData();
-            } catch(e) {
-                console.error("Categories Load Error:", e);
-            }
+      <!-- CHART SECTION (TRADINGVIEW) -->
+      <div class="lg:col-span-2 bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-xl">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-bold text-slate-300">इंट्राडे टेक्निकल चार्ट (PDH / PDL ज़ोन)</span>
+          <span class="text-[10px] text-emerald-400">● Live 5M Candlesticks</span>
+        </div>
+        <div id="tvChart" class="w-full h-96 rounded-lg overflow-hidden"></div>
+      </div>
+
+      <!-- OPTION BUYER DIRECT PANEL -->
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="text-sm font-bold text-emerald-400 uppercase">ऑप्शन बाइंग (CE / PE)</h2>
+            <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">Buyer Only Mode</span>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <label class="text-[10px] uppercase text-slate-400">स्ट्राइक प्राइस चुनें (ATM / ITM / OTM)</label>
+              <select id="optStrike" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 font-semibold text-slate-100 mt-1">
+                <!-- Injected automatically -->
+              </select>
+            </div>
+
+            <div>
+              <label class="text-[10px] uppercase text-slate-400">लॉट साइज / क्वांटिटी</label>
+              <input id="optLots" type="number" value="1" min="1" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 mt-1">
+            </div>
+
+            <div class="p-3 bg-slate-800/50 rounded-xl border border-slate-700/60 space-y-1">
+              <div class="text-[11px] font-bold text-slate-300">एंट्री लॉजिक गाइड:</div>
+              <div class="text-[10px] text-emerald-400">✦ PDH ब्रेकआउट ➔ BUY CE (कॉल ऑप्शन)</div>
+              <div class="text-[10px] text-rose-400">✦ PDL ब्रेकडाउन ➔ BUY PE (पुट ऑप्शन)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ONLY OPTION BUY BUTTONS -->
+        <div class="grid grid-cols-2 gap-3 pt-4">
+          <button onclick="executeOptionOrder('CE')" class="bg-emerald-600 hover:bg-emerald-500 text-xs font-black py-3 rounded-xl transition shadow-lg shadow-emerald-600/30 flex flex-col items-center">
+            <span>BUY CALL (CE)</span>
+            <span class="text-[9px] font-normal text-emerald-200">तेज़ी में खरीदें ⮵</span>
+          </button>
+          <button onclick="executeOptionOrder('PE')" class="bg-rose-600 hover:bg-rose-500 text-xs font-black py-3 rounded-xl transition shadow-lg shadow-rose-600/30 flex flex-col items-center">
+            <span>BUY PUT (PE)</span>
+            <span class="text-[9px] font-normal text-rose-200">मंदी में खरीदें ⮷</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BROKER GATEWAY & RISK CONFIG ROW -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- MULTI-BROKER GATEWAY -->
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
+        <h2 class="text-sm font-bold text-sky-400 mb-3 uppercase">मल्टी-ब्रोकर गेटवे (Dhan, Angel, SBI, Kite, Upstox)</h2>
+        <div class="space-y-3">
+          <select id="brokerSelect" onchange="renderBrokerForm()" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700 font-semibold text-slate-200">
+            <option value="dhan">Dhan (धन)</option>
+            <option value="angelone">Angel One (SmartAPI)</option>
+            <option value="sbi">SBI Securities (एसबीआई)</option>
+            <option value="zerodha">Zerodha Kite</option>
+            <option value="upstox">Upstox Pro</option>
+          </select>
+          <div id="brokerFields" class="space-y-2"></div>
+          <div class="flex gap-2 pt-2">
+            <button onclick="linkSelectedBroker()" class="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold py-2 rounded-lg transition">लिंक करें</button>
+            <button onclick="unlinkSelectedBroker()" class="w-1/2 bg-rose-600 hover:bg-rose-500 text-xs font-bold py-2 rounded-lg transition">अन-लिंक (Kill)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RISK & AUTO SQUARE-OFF -->
+      <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
+        <h2 class="text-sm font-bold text-amber-400 mb-3 uppercase">ऑटो-टारगेट और स्टॉप-लॉस सेटिंग्स</h2>
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] uppercase text-emerald-400">टारगेट प्रॉफिट (₹)</label>
+              <input id="riskTarget" type="number" value="1000" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700">
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-rose-400">स्टॉप लॉस (₹)</label>
+              <input id="riskSL" type="number" value="500" class="w-full bg-slate-800 text-xs px-3 py-2 rounded-lg border border-slate-700">
+            </div>
+          </div>
+          <div class="flex items-center justify-between p-2.5 bg-slate-800/60 rounded-lg border border-slate-700/50">
+            <span class="text-xs font-bold">PDH/PDL ऑटो-एंट्री चालू:</span>
+            <input id="riskAutoToggle" type="checkbox" class="w-5 h-5 accent-emerald-500 cursor-pointer">
+          </div>
+          <button onclick="saveRiskSettings()" class="w-full bg-sky-600 hover:bg-sky-500 text-xs font-bold py-2 rounded-lg transition">सेटिंग्स सेव करें</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TERMINAL AUDIT LOGS -->
+    <div class="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
+      <div class="flex justify-between items-center mb-2">
+        <h2 class="text-xs font-bold text-slate-400 uppercase">सिस्टम ऑडिट ट्रेल (Live Activity Logs)</h2>
+        <span class="text-[10px] text-slate-500">Auto-Sync (3s)</span>
+      </div>
+      <div id="logContainer" class="bg-black/60 p-4 rounded-xl font-mono text-xs text-emerald-400 h-36 overflow-y-auto space-y-1">
+        <div>[SYSTEM READY] टर्मिनल तैयार है।</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem("token");
+    let currentActiveSymbol = "RELIANCE.NS";
+
+    setInterval(() => {
+      document.getElementById("clock").innerText = new Date().toLocaleString("hi-IN", { timeZone: "Asia/Kolkata" });
+    }, 1000);
+
+    if (authToken) initTerminal();
+
+    document.getElementById("loginForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData();
+      fd.append("username", document.getElementById("uName").value);
+      fd.append("password", document.getElementById("uPass").value);
+
+      const res = await fetch("/token", { method: "POST", body: fd });
+      if (res.ok) {
+        const d = await res.json();
+        authToken = d.access_token;
+        localStorage.setItem("token", authToken);
+        initTerminal();
+      } else {
+        alert("गलत यूज़रनेम या पासवर्ड!");
+      }
+    };
+
+    function initTerminal() {
+      document.getElementById("loginOverlay").classList.add("hidden");
+      document.getElementById("mainTerminal").classList.remove("hidden");
+      renderBrokerForm();
+      loadMarketData(currentActiveSymbol);
+      fetchStatus();
+      setInterval(fetchStatus, 3000);
+      setInterval(() => loadMarketData(currentActiveSymbol), 10000);
+    }
+
+    function logoutUser() {
+      localStorage.removeItem("token");
+      location.reload();
+    }
+
+    // REAL-TIME SEARCH AUTOCOMPLETE
+    async function handleSearch(query) {
+      const box = document.getElementById("searchResults");
+      if (query.trim().length === 0) {
+        box.classList.add("hidden");
+        return;
+      }
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+        headers: { "Authorization": `Bearer ${authToken}` }
+      });
+      if (res.ok) {
+        const list = await res.json();
+        if (list.length === 0) {
+          box.innerHTML = `<div class="p-3 text-xs text-slate-500">कोई स्टॉक/कमोडिटी नहीं मिली।</div>`;
+        } else {
+          box.innerHTML = list.map(item => `
+            <div onclick="selectSymbol('${item.symbol}')" class="p-2.5 hover:bg-slate-800 cursor-pointer border-b border-slate-800/50 flex justify-between items-center">
+              <div>
+                <div class="text-xs font-bold text-white">${item.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono">${item.symbol}</div>
+              </div>
+              <span class="text-[9px] px-2 py-0.5 rounded bg-slate-800 text-sky-400 font-bold border border-slate-700">${item.segment}</span>
+            </div>
+          `).join("");
         }
+        box.classList.remove("hidden");
+      }
+    }
 
-        function populateDropdown() {
-            const selector = document.getElementById('stockSelector');
-            selector.innerHTML = '';
-            const items = categoriesData[currentCategory] || {};
-            for (const key in items) {
-                const opt = document.createElement('option');
-                opt.value = key;
-                opt.innerText = key;
-                selector.appendChild(opt);
-            }
-            if (Object.keys(items).length > 0) {
-                currentSymbol = Object.keys(items)[0];
-                selector.value = currentSymbol;
-            }
-        }
+    function selectSymbol(sym) {
+      currentActiveSymbol = sym;
+      document.getElementById("searchResults").classList.add("hidden");
+      document.getElementById("searchBar").value = "";
+      loadMarketData(sym);
+    }
 
-        function setCategory(cat) {
-            currentCategory = cat;
-            document.querySelectorAll('#catGroup button').forEach(btn => {
-                if (btn.innerText.includes(cat) || cat.includes(btn.innerText)) {
-                    btn.className = "px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 text-white";
-                } else {
-                    btn.className = "px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700";
-                }
-            });
-            populateDropdown();
-            fetchData();
-        }
+    // LOAD MARKET DATA & PDH/PDL LEVELS
+    async function loadMarketData(sym) {
+      const res = await fetch(`/api/market-data?symbol=${encodeURIComponent(sym)}`, {
+        headers: { "Authorization": `Bearer ${authToken}` }
+      });
+      if (res.ok) {
+        const d = await res.json();
+        document.getElementById("dispSymbol").innerText = d.symbol;
+        document.getElementById("dispPrice").innerText = `₹ ${d.current_price}`;
+        document.getElementById("dispPDH").innerText = `₹ ${d.pdh}`;
+        document.getElementById("dispPDL").innerText = `₹ ${d.pdl}`;
+        document.getElementById("dispSignal").innerText = d.recommendation;
 
-        function searchCustomStock() {
-            const val = document.getElementById('customSearchInput').value.trim().toUpperCase();
-            if(val) {
-                currentSymbol = val;
-                fetchData();
-            }
-        }
+        // Populate Strikes dropdown
+        const sel = document.getElementById("optStrike");
+        sel.innerHTML = d.strikes.map(s => `
+          <option value="${s}" ${s === d.atm_strike ? 'selected' : ''}>${s} ${s === d.atm_strike ? '(ATM)' : ''}</option>
+        `).join("");
 
-        document.getElementById('customSearchInput').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                searchCustomStock();
-            }
-        });
+        // Render TradingView Chart
+        renderTradingViewChart(sym);
+      }
+    }
 
-        function initChart() {
-            const container = document.getElementById('chartContainer');
-            container.innerHTML = '';
-            
-            chart = LightweightCharts.createChart(container, {
-                width: container.clientWidth,
-                height: 470,
-                layout: { backgroundColor: '#080c14', textColor: '#94a3b8' },
-                grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
-                timeScale: { timeVisible: true, secondsVisible: false }
-            });
+    function renderTradingViewChart(sym) {
+      let tvSymbol = "NSE:" + sym.replace(".NS", "");
+      if (sym === "CL=F") tvSymbol = "MCX:CRUDEOIL1!";
+      if (sym === "GC=F") tvSymbol = "MCX:GOLD1!";
+      if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
+      if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
 
-            candleSeries = chart.addCandlestickSeries({
-                upColor: '#10b981', downColor: '#f43f5e',
-                borderUpColor: '#10b981', borderDownColor: '#f43f5e',
-                wickUpColor: '#10b981', wickDownColor: '#f43f5e'
-            });
+      document.getElementById("tvChart").innerHTML = "";
+      new TradingView.widget({
+        "autosize": true,
+        "symbol": tvSymbol,
+        "interval": "5",
+        "timezone": "Asia/Kolkata",
+        "theme": "dark",
+        "style": "1",
+        "locale": "in",
+        "toolbar_bg": "#0f172a",
+        "enable_publishing": false,
+        "hide_side_toolbar": false,
+        "container_id": "tvChart"
+      });
+    }
 
-            window.addEventListener('resize', () => {
-                if (chart) chart.applyOptions({ width: container.clientWidth });
-            });
-        }
+    function renderBrokerForm() {
+      const b = document.getElementById("brokerSelect").value;
+      const f = document.getElementById("brokerFields");
 
-        function clearPriceLines() {
-            if(priceLines && candleSeries) {
-                priceLines.forEach(line => candleSeries.removePriceLine(line));
-                priceLines = [];
-            }
-        }
+      if (b === "dhan") {
+        f.innerHTML = `
+          <input id="f_cid" placeholder="Dhan Client ID" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_tok" type="password" placeholder="Dhan Access Token" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+        `;
+      } else if (b === "angelone") {
+        f.innerHTML = `
+          <input id="f_cid" placeholder="Angel Client Code" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_pin" type="password" placeholder="MPIN (4-digit)" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_key" placeholder="SmartAPI Key" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_totp" type="password" placeholder="TOTP Secret Key" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+        `;
+      } else if (b === "sbi") {
+        f.innerHTML = `
+          <input id="f_cid" placeholder="SBI Trading Client Code" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_key" placeholder="SBI Developer API Key" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_pin" type="password" placeholder="Password / PIN" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_totp" type="password" placeholder="TOTP Secret" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+        `;
+      } else {
+        f.innerHTML = `
+          <input id="f_cid" placeholder="User / Client ID" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_key" placeholder="API Key" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+          <input id="f_sec" type="password" placeholder="API Secret" class="w-full bg-slate-800 text-xs px-3 py-1.5 rounded-lg border border-slate-700">
+        `;
+      }
+    }
 
-        function addChartLevel(price, title, color) {
-            if(!candleSeries) return;
-            const line = candleSeries.createPriceLine({
-                price: price,
-                color: color,
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: title,
-            });
-            priceLines.push(line);
-        }
+    async function fetchStatus() {
+      if (!authToken) return;
+      const res = await fetch("/api/terminal/status", {
+        headers: { "Authorization": `Bearer ${authToken}` }
+      });
+      if (res.status === 401) return logoutUser();
+      const d = await res.json();
 
-        async function fetchData() {
-            try {
-                const res = await fetch('/api/data?symbol_key=' + encodeURIComponent(currentSymbol) + '&timeframe=' + currentTimeframe);
-                const data = await res.json();
-                
-                if (data.error) {
-                    alert(data.error);
-                    return;
-                }
-                if (!data.candles) return;
+      const b = document.getElementById("connectionBadge");
+      if (d.is_connected) {
+        b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        b.innerText = `ब्रोकर: ${d.active_broker} (${d.broker_display_id}) ✓`;
+      } else {
+        b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        b.innerText = "ब्रोकर: अन-लिंक ✕";
+      }
 
-                const cur = data.currency;
-                document.getElementById('activeSym').innerText = data.symbol;
+      document.getElementById("riskAutoToggle").checked = d.auto_trade_enabled;
+      document.getElementById("logContainer").innerHTML = d.logs.map(l => `<div>${l}</div>`).join("");
+    }
 
-                const sigEl = document.getElementById('signalVal');
-                sigEl.innerText = data.signal;
-                if(data.signal_type === 'buy') sigEl.className = "text-xl font-black mt-1 text-emerald-400";
-                else if(data.signal_type === 'sell') sigEl.className = "text-xl font-black mt-1 text-rose-400";
-                else sigEl.className = "text-xl font-black mt-1 text-amber-400";
+    async function linkSelectedBroker() {
+      const broker = document.getElementById("brokerSelect").value;
+      const payload = {
+        broker,
+        client_id: document.getElementById("f_cid") ? document.getElementById("f_cid").value : "",
+        api_key: document.getElementById("f_key") ? document.getElementById("f_key").value : null,
+        api_secret: document.getElementById("f_sec") ? document.getElementById("f_sec").value : null,
+        access_token: document.getElementById("f_tok") ? document.getElementById("f_tok").value : null,
+        pin: document.getElementById("f_pin") ? document.getElementById("f_pin").value : null,
+        totp_secret: document.getElementById("f_totp") ? document.getElementById("f_totp").value : null
+      };
 
-                document.getElementById('rsiVal').innerText = "RSI (14): " + data.rsi;
-                document.getElementById('strikeVal').innerText = data.strike_rec;
-                document.getElementById('ltpVal').innerText = cur + " " + data.ltp.toLocaleString('en-IN');
+      const res = await fetch("/api/broker/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+        body: JSON.stringify(payload)
+      });
+      const d = await res.json();
+      alert(res.ok ? d.message : `एरर: ${d.detail}`);
+      fetchStatus();
+    }
 
-                document.getElementById('entryVal').innerText = cur + " " + data.levels.entry.toLocaleString('en-IN');
-                document.getElementById('targetVal').innerText = cur + " " + data.levels.target.toLocaleString('en-IN');
-                document.getElementById('slVal').innerText = cur + " " + data.levels.stop_loss.toLocaleString('en-IN');
+    async function unlinkSelectedBroker() {
+      const res = await fetch("/api/broker/unlink", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${authToken}` }
+      });
+      const d = await res.json();
+      alert(d.message);
+      fetchStatus();
+    }
 
-                document.getElementById('r2Val').innerText = cur + " " + data.levels.r2.toLocaleString('en-IN');
-                document.getElementById('r1Val').innerText = cur + " " + data.levels.r1.toLocaleString('en-IN');
-                document.getElementById('pVal').innerText = cur + " " + data.levels.pivot.toLocaleString('en-IN');
-                document.getElementById('s1Val').innerText = cur + " " + data.levels.s1.toLocaleString('en-IN');
-                document.getElementById('s2Val').innerText = cur + " " + data.levels.s2.toLocaleString('en-IN');
+    async function saveRiskSettings() {
+      const payload = {
+        lots: parseInt(document.getElementById("optLots").value),
+        target_inr: parseFloat(document.getElementById("riskTarget").value),
+        stoploss_inr: parseFloat(document.getElementById("riskSL").value),
+        auto_trade: document.getElementById("riskAutoToggle").checked
+      };
+      const res = await fetch("/api/settings/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+        body: JSON.stringify(payload)
+      });
+      const d = await res.json();
+      alert(d.message);
+      fetchStatus();
+    }
 
-                if (candleSeries && data.candles.length > 0) {
-                    candleSeries.setData(data.candles);
-                    clearPriceLines();
-                    addChartLevel(data.levels.r2, 'R2', '#f43f5e');
-                    addChartLevel(data.levels.r1, 'R1', '#fb7185');
-                    addChartLevel(data.levels.pivot, 'PIVOT', '#f59e0b');
-                    addChartLevel(data.levels.s1, 'S1', '#34d399');
-                    addChartLevel(data.levels.s2, 'S2', '#10b981');
-                }
-            } catch(e) {
-                console.error("Fetch Error:", e);
-            }
-        }
-
-        function changeSymbol(sym) {
-            currentSymbol = sym;
-            fetchData();
-        }
-
-        function changeTimeframe(tf) {
-            currentTimeframe = tf;
-            document.querySelectorAll('#tfGroup button').forEach(btn => {
-                if (btn.innerText.toLowerCase() === tf) {
-                    btn.className = "px-2.5 py-1 text-xs font-bold rounded bg-emerald-600 text-white";
-                } else {
-                    btn.className = "px-2.5 py-1 text-xs font-bold rounded text-slate-400 hover:text-white";
-                }
-            });
-            fetchData();
-        }
-
-        window.onload = () => {
-            initChart();
-            loadCategories();
-            setInterval(fetchData, 15000);
-        };
-    </script>
+    async function executeOptionOrder(type) {
+      const payload = {
+        symbol: currentActiveSymbol,
+        strike: parseFloat(document.getElementById("optStrike").value),
+        option_type: type,
+        lots: parseInt(document.getElementById("optLots").value)
+      };
+      const res = await fetch("/api/order/buy-option", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+        body: JSON.stringify(payload)
+      });
+      const d = await res.json();
+      alert(res.ok ? d.message : `एरर: ${d.detail}`);
+      fetchStatus();
+    }
+  </script>
 </body>
 </html>
