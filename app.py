@@ -1,7 +1,10 @@
 import os
-import time
+import sqlite3
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
+from contextlib import asynccontextmanager
+
 import pandas as pd
 import yfinance as yf
 import requests
@@ -11,44 +14,85 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel
 from dhanhq import dhanhq
 from SmartApi import SmartConnect
 
-# ----------------- SECURITY CONFIG -----------------
+
+# ==========================================
+# 1. CONFIGURATION & CONSTANTS
+# ==========================================
 SECRET_KEY = os.getenv("APP_SECRET_KEY", "trading-shield-super-secret-jwt-key-2026-indore")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 720
+DB_NAME = "trading_users.db"
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", pwd_context.hash("admin@123"))
 
-# ----------------- SEARCH DIRECTORY (CASH, COMMODITY, INDICES) -----------------
+# ==========================================
+# 2. DATABASE MANAGEMENT
+# ==========================================
+def init_db():
+    """सर्वर स्टार्ट होने पर डेटाबेस और टेबल्स तैयार करता है"""
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # डिफ़ॉल्ट एडमिन यूज़र बनाना
+        admin_pass = hashlib.sha256("admin@123".encode()).hexdigest()
+        conn.execute("INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)", ("admin", admin_pass))
+        conn.commit()
+
+def get_db():
+    """हर API रिक्वेस्ट के लिए सुरक्षित DB कनेक्शन प्रदान करता है"""
+    conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+# ==========================================
+# 3. FASTAPI APP INITIALIZATION
+# ==========================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()  # सर्वर स्टार्ट होने पर DB सेट अप करें
+    yield
+
+app = FastAPI(title="Option Buyer Terminal", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware, 
+    allow_origins=["*"], 
+    allow_credentials=True, 
+    allow_methods=["*"], 
+    allow_headers=["*"]
+)
+
+
+# ==========================================
+# 4. IN-MEMORY STATE & SYMBOLS
+# ==========================================
 MASTER_SYMBOLS = [
-    # Indices & F&O
     {"symbol": "^NSEI", "name": "NIFTY 50", "segment": "INDEX", "step": 50},
     {"symbol": "^NSEBANK", "name": "BANKNIFTY", "segment": "INDEX", "step": 100},
     {"symbol": "^CNXIT", "name": "NIFTY IT", "segment": "INDEX", "step": 100},
-    # Commodities
     {"symbol": "CL=F", "name": "CRUDE OIL (MCX/NYMEX)", "segment": "COMMODITY", "step": 50},
     {"symbol": "GC=F", "name": "GOLD (MCX/COMEX)", "segment": "COMMODITY", "step": 100},
     {"symbol": "SI=F", "name": "SILVER (MCX/COMEX)", "segment": "COMMODITY", "step": 500},
     {"symbol": "NG=F", "name": "NATURAL GAS", "segment": "COMMODITY", "step": 5},
-    # Cash / Equity / Futures
     {"symbol": "RELIANCE.NS", "name": "Reliance Industries", "segment": "EQUITY", "step": 20},
     {"symbol": "SBIN.NS", "name": "State Bank of India", "segment": "EQUITY", "step": 10},
     {"symbol": "TCS.NS", "name": "Tata Consultancy Services", "segment": "EQUITY", "step": 50},
     {"symbol": "HDFCBANK.NS", "name": "HDFC Bank Ltd", "segment": "EQUITY", "step": 20},
-    {"symbol": "ICICIBANK.NS", "name": "ICICI Bank", "segment": "EQUITY", "step": 10},
-    {"symbol": "INFY.NS", "name": "Infosys Ltd", "segment": "EQUITY", "step": 20},
-    {"symbol": "TATAMOTORS.NS", "name": "Tata Motors", "segment": "EQUITY", "step": 10},
-    {"symbol": "ITC.NS", "name": "ITC Ltd", "segment": "EQUITY", "step": 5},
-    {"symbol": "LT.NS", "name": "Larsen & Toubro", "segment": "EQUITY", "step": 20},
-    {"symbol": "AXISBANK.NS", "name": "Axis Bank", "segment": "EQUITY", "step": 10}
 ]
 
 TERMINAL_STATE = {
@@ -62,26 +106,39 @@ TERMINAL_STATE = {
 
 broker_instances: Dict[str, Any] = {}
 
-app = FastAPI(title="Option Buyer Terminal")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-# ----------------- AUTH HELPERS -----------------
+# ==========================================
+# 5. AUTHENTICATION UTILS
+# ==========================================
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(token: str = Depends(oauth2_scheme), db: sqlite3.Connection = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("sub") != ADMIN_USERNAME:
+        username = payload.get("sub")
+        if username is None:
             raise HTTPException(status_code=401, detail="अमान्य टोकन!")
+        
+        user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        if not user:
+            raise HTTPException(status_code=401, detail="यूज़र डेटाबेस में नहीं मिला!")
+        
+        return username
     except JWTError:
         raise HTTPException(status_code=401, detail="सत्र समाप्त, पुनः लॉगिन करें।")
-    return payload.get("sub")
 
-# ----------------- SCHEMAS -----------------
+
+# ==========================================
+# 6. PYDANTIC SCHEMAS
+# ==========================================
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
 class BrokerLinkRequest(BaseModel):
     broker: str
     client_id: str
@@ -103,13 +160,43 @@ class OptionBuyRequest(BaseModel):
     option_type: str  # CE or PE
     lots: int
 
-# ----------------- ENDPOINTS -----------------
-@app.post("/token")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    if form_data.username != ADMIN_USERNAME or not pwd_context.verify(form_data.password, ADMIN_PASSWORD_HASH):
-        raise HTTPException(status_code=400, detail="गलत यूज़रनेम या पासवर्ड!")
-    return {"access_token": create_access_token(data={"sub": form_data.username}), "token_type": "bearer"}
 
+# ==========================================
+# 7. AUTH API ENDPOINTS
+# ==========================================
+@app.post("/api/register")
+def register_user(req: RegisterRequest, db: sqlite3.Connection = Depends(get_db)):
+    if len(req.username.strip()) < 3 or len(req.password.strip()) < 4:
+        raise HTTPException(status_code=400, detail="यूज़रनेम कम से कम 3 और पासवर्ड 4 अक्षरों का होना चाहिए!")
+    
+    pwd_hash = hashlib.sha256(req.password.encode()).hexdigest()
+    try:
+        db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (req.username.strip(), pwd_hash))
+        db.commit()
+        return {"status": "success", "message": "खाता सफलतापूर्वक बन गया! अब आप लॉगिन कर सकते हैं।"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="यह यूज़रनेम पहले से मौजूद है! कृपया दूसरा नाम चुनें।")
+
+@app.post("/token")
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = Depends(get_db)):
+    pwd_hash = hashlib.sha256(form_data.password.encode()).hexdigest()
+    user = db.execute("SELECT * FROM users WHERE username = ? AND password_hash = ?", 
+                      (form_data.username.strip(), pwd_hash)).fetchone()
+    
+    if user:
+        access_token = create_access_token(data={"sub": user["username"]})
+        return {"access_token": access_token, "token_type": "bearer"}
+    
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="गलत यूज़रनेम या पासवर्ड! कृपया दोबारा जाँचें।",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+# ==========================================
+# 8. TERMINAL API ENDPOINTS
+# ==========================================
 @app.get("/api/search")
 def search_symbols(q: str = Query("", min_length=1), user: str = Depends(get_current_user)):
     query = q.lower().strip()
@@ -126,7 +213,6 @@ def get_market_data(symbol: str = Query(...), user: str = Depends(get_current_us
 
         current_price = round(float(df["Close"].iloc[-1]), 2)
         
-        # Previous Day High / Low Calculation
         df_daily = ticker.history(period="5d", interval="1d")
         if len(df_daily) >= 2:
             prev_day = df_daily.iloc[-2]
@@ -136,7 +222,6 @@ def get_market_data(symbol: str = Query(...), user: str = Depends(get_current_us
         else:
             pdh, pdl, pdc = current_price, current_price, current_price
 
-        # Strike Price Generator (ATM, ITM, OTM)
         step = 50
         for s in MASTER_SYMBOLS:
             if s["symbol"] == symbol:
@@ -146,7 +231,6 @@ def get_market_data(symbol: str = Query(...), user: str = Depends(get_current_us
         atm_strike = round(current_price / step) * step
         strikes = [atm_strike - (step * 2), atm_strike - step, atm_strike, atm_strike + step, atm_strike + (step * 2)]
 
-        # Signal Logic based on PDH / PDL Breakout
         recommendation = "NEUTRAL"
         if current_price > pdh:
             recommendation = "BULLISH BREAKOUT (BUY CE)"
@@ -200,10 +284,14 @@ def link_broker(req: BrokerLinkRequest, user: str = Depends(get_current_user)):
         TERMINAL_STATE["is_connected"] = True
         masked = req.client_id[:3] + "****" + req.client_id[-2:] if len(req.client_id) > 5 else req.client_id
         TERMINAL_STATE["broker_display_id"] = masked
-        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} ({masked}) सफलतापूर्वक लिंक हुआ।")
+        
+        log_msg = f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} ({masked}) सफलतापूर्वक लिंक हुआ।"
+        TERMINAL_STATE["logs"].append(log_msg)
+        
         return {"status": "success", "message": f"{broker.upper()} कनेक्ट हो गया है!"}
     except Exception as e:
-        TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} लिंक एरर: {str(e)}")
+        error_msg = f"{datetime.now().strftime('%H:%M:%S')} - {broker.upper()} लिंक एरर: {str(e)}"
+        TERMINAL_STATE["logs"].append(error_msg)
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/broker/unlink")
@@ -217,11 +305,6 @@ def unlink_broker(user: str = Depends(get_current_user)):
     TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - {b_name} अनलिंक किया गया।")
     return {"status": "success", "message": "ब्रोकर सफलतापूर्वक डिस्कनेक्ट हुआ।"}
 
-@app.get("/", response_class=HTMLResponse)
-def read_root():
-    if os.path.exists("index.html"):
-        return FileResponse("index.html")
-    return "<h1>index.html फ़ाइल नहीं मिली!</h1>"
 @app.post("/api/settings/save")
 def save_settings(req: RiskSettingsRequest, user: str = Depends(get_current_user)):
     TERMINAL_STATE["risk_settings"]["lots"] = req.lots
@@ -229,7 +312,10 @@ def save_settings(req: RiskSettingsRequest, user: str = Depends(get_current_user
     TERMINAL_STATE["risk_settings"]["stoploss_inr"] = req.stoploss_inr
     TERMINAL_STATE["auto_trade_enabled"] = req.auto_trade
     status_txt = "चालू" if req.auto_trade else "बंद"
-    TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - सेटिंग्स सेव: Lots={req.lots}, Target=₹{req.target_inr}, SL=₹{req.stoploss_inr}, AutoTrade={status_txt}")
+    
+    log_msg = f"{datetime.now().strftime('%H:%M:%S')} - सेटिंग्स सेव: Lots={req.lots}, Target=₹{req.target_inr}, SL=₹{req.stoploss_inr}, AutoTrade={status_txt}"
+    TERMINAL_STATE["logs"].append(log_msg)
+    
     return {"status": "success", "message": "रिस्क सेटिंग्स सुरक्षित हो गईं!"}
 
 @app.post("/api/order/buy-option")
@@ -240,7 +326,24 @@ def buy_option(req: OptionBuyRequest, user: str = Depends(get_current_user)):
     order_desc = f"BUY {req.symbol} {req.strike} {req.option_type} ({req.lots} Lot)"
     TERMINAL_STATE["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} - [ORDER PLACED] {order_desc}")
     return {"status": "success", "message": f"सफल: {order_desc}"}
-    if __name__ == "__main__":
-        import uvicorn
-        port = int(os.environ.get("PORT", 10000))
-        uvicorn.run("app:app", host="0.0.0.0", port=port)
+
+
+# ==========================================
+# 9. MAIN FRONTEND ROUTE
+# ==========================================
+@app.get("/", response_class=HTMLResponse)
+def read_root():
+    if os.path.exists("index.html"):
+        return FileResponse("index.html")
+    return "<h1>index.html फ़ाइल नहीं मिली! कृपया इसे इसी फोल्डर में रखें।</h1>"
+
+
+# ==========================================
+# 10. RUN SERVER
+# ==========================================
+if __name__ == "__main__":
+    import uvicorn
+    # Vercel, Render या लोकल पर चलाने के लिए पोर्ट कॉन्फ़िगरेशन
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Starting Option Buyer Terminal on Port {port}...")
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
