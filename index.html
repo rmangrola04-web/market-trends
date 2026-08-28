@@ -10,24 +10,31 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
 
-  <!-- 1. LOGIN OVERLAY -->
+  <!-- 1. LOGIN & REGISTER OVERLAY -->
   <div id="loginOverlay" class="flex items-center justify-center min-h-screen px-4">
     <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
       <div class="flex items-center justify-center mb-6">
         <span class="text-3xl mr-2">🎯</span>
-        <h1 class="text-2xl font-black text-sky-400">ऑप्शन बाइंग टर्मिनल</h1>
+        <h1 id="authTitle" class="text-2xl font-black text-sky-400">ऑप्शन बाइंग टर्मिनल</h1>
       </div>
       <form id="loginForm" class="space-y-4">
         <div>
           <label class="block text-[11px] uppercase tracking-wider text-slate-400 mb-1">यूज़रनेम</label>
-          <input id="uName" type="text" value="admin" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
+          <input id="usernameInput" type="text" value="admin" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
         </div>
         <div>
           <label class="block text-[11px] uppercase tracking-wider text-slate-400 mb-1">पासवर्ड</label>
-          <input id="uPass" type="password" placeholder="••••••••" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
+          <input id="passwordInput" type="password" placeholder="••••••••" required class="w-full bg-slate-800 border border-slate-700 px-4 py-2.5 rounded-lg focus:outline-none focus:border-sky-500 text-sm">
         </div>
-        <button type="submit" class="w-full bg-sky-600 hover:bg-sky-500 font-bold py-2.5 rounded-lg transition">सुरक्षित लॉगिन</button>
+        <button id="loginSubmitBtn" type="submit" class="w-full bg-sky-600 hover:bg-sky-500 font-bold py-2.5 rounded-lg transition">सुरक्षित लॉगिन</button>
       </form>
+      
+      <!-- Auth Mode Toggle Button -->
+      <div class="mt-4 text-center">
+        <button id="toggleAuthBtn" onclick="toggleAuthMode()" class="text-sm text-sky-400 hover:underline">
+          नया खाता बनाएं (Sign Up)
+        </button>
+      </div>
     </div>
   </div>
 
@@ -198,31 +205,99 @@
   </div>
 
   <script>
+    // --- GLOBAL VARIABLES ---
     let authToken = localStorage.getItem("token");
     let currentActiveSymbol = "RELIANCE.NS";
+    let isSignUpMode = false;
 
+    // --- INITIALIZATION ---
     setInterval(() => {
       document.getElementById("clock").innerText = new Date().toLocaleString("hi-IN", { timeZone: "Asia/Kolkata" });
     }, 1000);
 
     if (authToken) initTerminal();
 
+    // --- AUTHENTICATION LOGIC (Login & Sign Up Toggle) ---
+    function toggleAuthMode() {
+      isSignUpMode = !isSignUpMode;
+      const authTitle = document.getElementById("authTitle");
+      const submitBtn = document.getElementById("loginSubmitBtn");
+      const toggleBtn = document.getElementById("toggleAuthBtn");
+
+      if (isSignUpMode) {
+        if (authTitle) authTitle.innerText = "नया यूज़र रजिस्ट्रेशन (Sign Up)";
+        if (submitBtn) submitBtn.innerText = "खाता बनाएं (Register)";
+        if (toggleBtn) toggleBtn.innerText = "पहले से खाता है? लॉगिन करें (Sign In)";
+      } else {
+        if (authTitle) authTitle.innerText = "ऑप्शन बाइंग टर्मिनल";
+        if (submitBtn) submitBtn.innerText = "सुरक्षित लॉगिन";
+        if (toggleBtn) toggleBtn.innerText = "नया खाता बनाएं (Sign Up)";
+      }
+    }
+
     document.getElementById("loginForm").onsubmit = async (e) => {
       e.preventDefault();
-      const fd = new FormData();
-      fd.append("username", document.getElementById("uName").value);
-      fd.append("password", document.getElementById("uPass").value);
-
-      const res = await fetch("/token", { method: "POST", body: fd });
-      if (res.ok) {
-        const d = await res.json();
-        authToken = d.access_token;
-        localStorage.setItem("token", authToken);
-        initTerminal();
-      } else {
-        alert("गलत यूज़रनेम या पासवर्ड!");
-      }
+      await handleAuthSubmit();
     };
+
+    async function handleAuthSubmit() {
+      const u = document.getElementById("usernameInput").value.trim();
+      const p = document.getElementById("passwordInput").value.trim();
+
+      if (!u || !p) {
+        alert("कृपया यूज़रनेम और पासवर्ड दोनों दर्ज करें!");
+        return;
+      }
+
+      if (isSignUpMode) {
+        // Registration API Call
+        try {
+          const res = await fetch("/api/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: u, password: p })
+          });
+          
+          const data = await res.json();
+          if (res.ok) {
+            alert(data.message || "रजिस्ट्रेशन सफल रहा!");
+            toggleAuthMode(); // Switch back to login mode
+          } else {
+            alert(data.detail || "रजिस्ट्रेशन विफल रहा!");
+          }
+        } catch (err) {
+          alert("सर्वर से संपर्क नहीं हो पाया!");
+        }
+      } else {
+        // Normal Login Call
+        performLogin(u, p);
+      }
+    }
+
+    async function performLogin(username, password) {
+      const fd = new FormData();
+      fd.append("username", username);
+      fd.append("password", password);
+
+      try {
+        const res = await fetch("/token", { method: "POST", body: fd });
+        if (res.ok) {
+          const d = await res.json();
+          authToken = d.access_token;
+          localStorage.setItem("token", authToken);
+          initTerminal();
+        } else {
+          alert("गलत यूज़रनेम या पासवर्ड!");
+        }
+      } catch (err) {
+        alert("सर्वर से संपर्क नहीं हो पाया!");
+      }
+    }
+
+    function logoutUser() {
+      localStorage.removeItem("token");
+      location.reload();
+    }
 
     function initTerminal() {
       document.getElementById("loginOverlay").classList.add("hidden");
@@ -234,38 +309,35 @@
       setInterval(() => loadMarketData(currentActiveSymbol), 10000);
     }
 
-    function logoutUser() {
-      localStorage.removeItem("token");
-      location.reload();
-    }
-
-    // REAL-TIME SEARCH AUTOCOMPLETE
+    // --- SEARCH AUTOCOMPLETE ---
     async function handleSearch(query) {
       const box = document.getElementById("searchResults");
       if (query.trim().length === 0) {
         box.classList.add("hidden");
         return;
       }
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
-        headers: { "Authorization": `Bearer ${authToken}` }
-      });
-      if (res.ok) {
-        const list = await res.json();
-        if (list.length === 0) {
-          box.innerHTML = `<div class="p-3 text-xs text-slate-500">कोई स्टॉक/कमोडिटी नहीं मिली।</div>`;
-        } else {
-          box.innerHTML = list.map(item => `
-            <div onclick="selectSymbol('${item.symbol}')" class="p-2.5 hover:bg-slate-800 cursor-pointer border-b border-slate-800/50 flex justify-between items-center">
-              <div>
-                <div class="text-xs font-bold text-white">${item.name}</div>
-                <div class="text-[10px] text-slate-400 font-mono">${item.symbol}</div>
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+        if (res.ok) {
+          const list = await res.json();
+          if (list.length === 0) {
+            box.innerHTML = `<div class="p-3 text-xs text-slate-500">कोई स्टॉक/कमोडिटी नहीं मिली।</div>`;
+          } else {
+            box.innerHTML = list.map(item => `
+              <div onclick="selectSymbol('${item.symbol}')" class="p-2.5 hover:bg-slate-800 cursor-pointer border-b border-slate-800/50 flex justify-between items-center">
+                <div>
+                  <div class="text-xs font-bold text-white">${item.name}</div>
+                  <div class="text-[10px] text-slate-400 font-mono">${item.symbol}</div>
+                </div>
+                <span class="text-[9px] px-2 py-0.5 rounded bg-slate-800 text-sky-400 font-bold border border-slate-700">${item.segment}</span>
               </div>
-              <span class="text-[9px] px-2 py-0.5 rounded bg-slate-800 text-sky-400 font-bold border border-slate-700">${item.segment}</span>
-            </div>
-          `).join("");
+            `).join("");
+          }
+          box.classList.remove("hidden");
         }
-        box.classList.remove("hidden");
-      }
+      } catch (e) {}
     }
 
     function selectSymbol(sym) {
@@ -275,54 +347,52 @@
       loadMarketData(sym);
     }
 
-    // LOAD MARKET DATA & PDH/PDL LEVELS
+    // --- MARKET DATA & TRADINGVIEW ---
     async function loadMarketData(sym) {
-      const res = await fetch(`/api/market-data?symbol=${encodeURIComponent(sym)}`, {
-        headers: { "Authorization": `Bearer ${authToken}` }
-      });
-      if (res.ok) {
-        const d = await res.json();
-        document.getElementById("dispSymbol").innerText = d.symbol;
-        document.getElementById("dispPrice").innerText = `₹ ${d.current_price}`;
-        document.getElementById("dispPDH").innerText = `₹ ${d.pdh}`;
-        document.getElementById("dispPDL").innerText = `₹ ${d.pdl}`;
-        document.getElementById("dispSignal").innerText = d.recommendation;
+      try {
+        const res = await fetch(`/api/market-data?symbol=${encodeURIComponent(sym)}`, {
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+        if (res.ok) {
+          const d = await res.json();
+          document.getElementById("dispSymbol").innerText = d.symbol;
+          document.getElementById("dispPrice").innerText = `₹ ${d.current_price}`;
+          document.getElementById("dispPDH").innerText = `₹ ${d.pdh}`;
+          document.getElementById("dispPDL").innerText = `₹ ${d.pdl}`;
+          document.getElementById("dispSignal").innerText = d.recommendation;
 
-        // Populate Strikes dropdown
-        const sel = document.getElementById("optStrike");
-        sel.innerHTML = d.strikes.map(s => `
-          <option value="${s}" ${s === d.atm_strike ? 'selected' : ''}>${s} ${s === d.atm_strike ? '(ATM)' : ''}</option>
-        `).join("");
+          const sel = document.getElementById("optStrike");
+          sel.innerHTML = d.strikes.map(s => `
+            <option value="${s}" ${s === d.atm_strike ? 'selected' : ''}>${s} ${s === d.atm_strike ? '(ATM)' : ''}</option>
+          `).join("");
 
-        // Render TradingView Chart
-        renderTradingViewChart(sym);
-      }
+          renderTradingViewChart(sym);
+        }
+      } catch (e) {}
     }
+
+    function renderTradingViewChart(sym) {
+      let tvSymbol = "BSE:" + sym.replace(".NS", "").replace(".BO", "");
       
-Rahul Mangrola <rmangrola04@gmail.com>
-10:03 AM (2 minutes ago)
-to me
+      if (sym === "CL=F") tvSymbol = "TVC:USOIL";
+      else if (sym === "GC=F") tvSymbol = "TVC:GOLD";
+      else if (sym === "SI=F") tvSymbol = "TVC:SILVER";
+      else if (sym === "NG=F") tvSymbol = "TVC:NATURALGAS";
+      else if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
+      else if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
+      else if (sym.includes("RELIANCE")) tvSymbol = "BSE:RELIANCE";
+      else if (sym.includes("SBIN")) tvSymbol = "BSE:SBIN";
 
-function renderTradingViewChart(sym) {
-  let tvSymbol = "BSE:" + sym.replace(".NS", "").replace(".BO", "");
-  
-  if (sym === "CL=F") tvSymbol = "TVC:USOIL";
-  else if (sym === "GC=F") tvSymbol = "TVC:GOLD";
-  else if (sym === "SI=F") tvSymbol = "TVC:SILVER";
-  else if (sym === "NG=F") tvSymbol = "TVC:NATURALGAS";
-  else if (sym === "^NSEI") tvSymbol = "NSE:NIFTY";
-  else if (sym === "^NSEBANK") tvSymbol = "NSE:BANKNIFTY";
-  else if (sym.includes("RELIANCE")) tvSymbol = "BSE:RELIANCE";
-  else if (sym.includes("SBIN")) tvSymbol = "BSE:SBIN";
+      const container = document.getElementById("tvChart");
+      container.innerHTML = `
+        <iframe 
+          style="width: 100%; height: 100%; min-height: 480px; border: none; border-radius: 8px;" 
+          src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=131722&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&locale=in">
+        </iframe>
+      `;
+    }
 
-  const container = document.getElementById("tvChart");
-  container.innerHTML = `
-    <iframe 
-      style="width: 100%; height: 100%; min-height: 480px; border: none; border-radius: 8px;" 
-      src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=${encodeURIComponent(tvSymbol)}&interval=5&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=131722&studies=[]&theme=dark&style=1&timezone=Asia%2FKolkata&locale=in">
-    </iframe>
-  `;
-}
+    // --- BROKER & TERMINAL FORMS ---
     function renderBrokerForm() {
       const b = document.getElementById("brokerSelect").value;
       const f = document.getElementById("brokerFields");
@@ -357,23 +427,25 @@ function renderTradingViewChart(sym) {
 
     async function fetchStatus() {
       if (!authToken) return;
-      const res = await fetch("/api/terminal/status", {
-        headers: { "Authorization": `Bearer ${authToken}` }
-      });
-      if (res.status === 401) return logoutUser();
-      const d = await res.json();
-
-      const b = document.getElementById("connectionBadge");
-      if (d.is_connected) {
-        b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        b.innerText = `ब्रोकर: ${d.active_broker} (${d.broker_display_id}) ✓`;
-      } else {
-        b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30";
-        b.innerText = "ब्रोकर: अन-लिंक ✕";
-      }
-
-      document.getElementById("riskAutoToggle").checked = d.auto_trade_enabled;
-      document.getElementById("logContainer").innerHTML = d.logs.map(l => `<div>${l}</div>`).join("");
+      try {
+        const res = await fetch("/api/terminal/status", {
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+        if (res.status === 401) return logoutUser();
+        if (res.ok) {
+          const d = await res.json();
+          const b = document.getElementById("connectionBadge");
+          if (d.is_connected) {
+            b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+            b.innerText = `ब्रोकर: ${d.active_broker} (${d.broker_display_id}) ✓`;
+          } else {
+            b.className = "text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30";
+            b.innerText = "ब्रोकर: अन-लिंक ✕";
+          }
+          document.getElementById("riskAutoToggle").checked = d.auto_trade_enabled;
+          document.getElementById("logContainer").innerHTML = d.logs.map(l => `<div>${l}</div>`).join("");
+        }
+      } catch (e) {}
     }
 
     async function linkSelectedBroker() {
@@ -388,24 +460,30 @@ function renderTradingViewChart(sym) {
         totp_secret: document.getElementById("f_totp") ? document.getElementById("f_totp").value : null
       };
 
-      const res = await fetch("/api/broker/link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify(payload)
-      });
-      const d = await res.json();
-      alert(res.ok ? d.message : `एरर: ${d.detail}`);
-      fetchStatus();
+      try {
+        const res = await fetch("/api/broker/link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        alert(res.ok ? d.message : `एरर: ${d.detail}`);
+        fetchStatus();
+      } catch (e) {
+        alert("सर्वर एरर!");
+      }
     }
 
     async function unlinkSelectedBroker() {
-      const res = await fetch("/api/broker/unlink", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${authToken}` }
-      });
-      const d = await res.json();
-      alert(d.message);
-      fetchStatus();
+      try {
+        const res = await fetch("/api/broker/unlink", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${authToken}` }
+        });
+        const d = await res.json();
+        alert(d.message);
+        fetchStatus();
+      } catch (e) {}
     }
 
     async function saveRiskSettings() {
@@ -415,14 +493,16 @@ function renderTradingViewChart(sym) {
         stoploss_inr: parseFloat(document.getElementById("riskSL").value),
         auto_trade: document.getElementById("riskAutoToggle").checked
       };
-      const res = await fetch("/api/settings/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify(payload)
-      });
-      const d = await res.json();
-      alert(d.message);
-      fetchStatus();
+      try {
+        const res = await fetch("/api/settings/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        alert(d.message);
+        fetchStatus();
+      } catch (e) {}
     }
 
     async function executeOptionOrder(type) {
@@ -432,14 +512,16 @@ function renderTradingViewChart(sym) {
         option_type: type,
         lots: parseInt(document.getElementById("optLots").value)
       };
-      const res = await fetch("/api/order/buy-option", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify(payload)
-      });
-      const d = await res.json();
-      alert(res.ok ? d.message : `एरर: ${d.detail}`);
-      fetchStatus();
+      try {
+        const res = await fetch("/api/order/buy-option", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        alert(res.ok ? d.message : `एरर: ${d.detail}`);
+        fetchStatus();
+      } catch (e) {}
     }
   </script>
 </body>
